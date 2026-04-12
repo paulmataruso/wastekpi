@@ -1,0 +1,96 @@
+version: '3.9'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: waste-kpi-nginx
+    ports:
+      - "3300:3300"
+    environment:
+      REAL_HOST: ${REAL_HOST:-localhost:3300}
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./nginx/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    depends_on:
+      - api
+      - admin-ui
+      - display-ui
+    networks:
+      waste-kpi-net:
+        aliases:
+          - nginx
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: waste-kpi-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./api/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      waste-kpi-net:
+        aliases:
+          - postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: waste-kpi-api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: ${NODE_ENV}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      waste-kpi-net:
+        aliases:
+          - api
+    restart: unless-stopped
+
+  admin-ui:
+    build:
+      context: ./admin-ui
+      dockerfile: Dockerfile
+    container_name: waste-kpi-admin-ui
+    networks:
+      waste-kpi-net:
+        aliases:
+          - admin-ui
+    restart: unless-stopped
+
+  display-ui:
+    build:
+      context: ./display-ui
+      dockerfile: Dockerfile
+    container_name: waste-kpi-display-ui
+    networks:
+      waste-kpi-net:
+        aliases:
+          - display-ui
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  waste-kpi-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

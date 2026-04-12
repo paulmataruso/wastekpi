@@ -1,0 +1,94 @@
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    tcp_nopush    on;
+    tcp_nodelay   on;
+    keepalive_timeout 65;
+
+    # --- Gzip for the reverse proxy leg ---
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/x-javascript
+        application/json
+        application/xml
+        image/svg+xml
+        font/woff
+        font/woff2;
+
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    server {
+        listen 3300;
+        server_name _;
+
+        # ----------------------------------------------------------------
+        # Redirects use the real external host supplied via REAL_HOST env.
+        # ----------------------------------------------------------------
+        set $real_host "${REAL_HOST}";
+
+        # API — no caching for API responses
+        location /api/ {
+            set $api_upstream http://api:4000;
+            proxy_pass $api_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header Connection '';
+            proxy_buffering off;
+        }
+
+        # Admin UI
+        location = /admin {
+            return 301 $scheme://$real_host/admin/;
+        }
+        location /admin/ {
+            set $admin_upstream http://admin-ui:3000;
+            proxy_pass $admin_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            # Allow inner nginx to set its own cache headers
+            proxy_pass_header Cache-Control;
+        }
+
+        # Display UI
+        location = /display {
+            return 301 $scheme://$real_host/display/;
+        }
+        location /display/ {
+            set $display_upstream http://display-ui:3001;
+            proxy_pass $display_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_pass_header Cache-Control;
+        }
+
+        # Root redirect
+        location = / {
+            return 301 $scheme://$real_host/admin/;
+        }
+    }
+}
