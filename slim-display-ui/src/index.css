@@ -1,0 +1,36 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #060a0f;
+  --bg2: #0c1220;
+  --bg3: #101828;
+  --border: #1a2540;
+  --border2: #253050;
+  --text: #f0f4ff;
+  --text2: #8899bb;
+  --text3: #3d4f70;
+  --green: #00e676;
+  --green2: #00c853;
+  --green-dim: rgba(0,230,118,0.08);
+  --blue: #4fc3f7;
+  --blue-dim: rgba(79,195,247,0.08);
+  --amber: #ffca28;
+  --amber-dim: rgba(255,202,40,0.08);
+  --red: #ef5350;
+  --font: 'Barlow', sans-serif;
+  --font-cond: 'Barlow Condensed', sans-serif;
+  --mono: 'DM Mono', monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}

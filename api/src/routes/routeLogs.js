@@ -25,11 +25,11 @@ module.exports = (pool) => {
     await client.query('DELETE FROM pack_out_logs WHERE route_log_id = $1', [routeLogId]);
     if (!Array.isArray(packOuts) || packOuts.length === 0) return;
     for (let i = 0; i < packOuts.length; i++) {
-      const { pack_out_time, back_on_route_time } = packOuts[i];
+      const { pack_out_time, back_on_route_time, location } = packOuts[i];
       await client.query(
-        `INSERT INTO pack_out_logs (route_log_id, seq, pack_out_time, back_on_route_time)
-         VALUES ($1, $2, $3, $4)`,
-        [routeLogId, i + 1, pack_out_time || null, back_on_route_time || null]
+        `INSERT INTO pack_out_logs (route_log_id, seq, pack_out_time, back_on_route_time, location)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [routeLogId, i + 1, pack_out_time || null, back_on_route_time || null, location || null]
       );
     }
   }
@@ -41,8 +41,6 @@ module.exports = (pool) => {
     try {
       let query, params;
       const empFilter = employee_id ? ' AND rl.employee_id = $2' : '';
-
-      // Join routes table to pull in the area for the assigned route_number
       const routeAreaJoin = `LEFT JOIN routes rt ON rt.route_name = rl.route_number`;
       const routeAreaSelect = `, rt.area as route_area`;
 
@@ -95,10 +93,8 @@ module.exports = (pool) => {
 
       const result = await pool.query(query, params);
       const rows = result.rows;
-
       const packOutMap = await fetchPackOuts(rows.map(r => r.id));
       rows.forEach(r => { r.pack_outs = packOutMap[r.id] || []; });
-
       res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -108,7 +104,7 @@ module.exports = (pool) => {
   router.post('/', async (req, res) => {
     const {
       employee_id, log_date, route_number,
-      punch_in, first_stop_time, route_complete_time, punch_out,
+      punch_in, first_stop_time, route_complete_time, to_yard_time, punch_out,
       notes, pack_outs
     } = req.body;
 
@@ -118,54 +114,41 @@ module.exports = (pool) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
       const result = await client.query(
         `INSERT INTO route_logs
-           (employee_id, log_date, route_number, punch_in, first_stop_time, route_complete_time, punch_out, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           (employee_id, log_date, route_number, punch_in, first_stop_time,
+            route_complete_time, to_yard_time, punch_out, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (employee_id, log_date) DO UPDATE SET
            route_number=EXCLUDED.route_number,
            punch_in=EXCLUDED.punch_in,
            first_stop_time=EXCLUDED.first_stop_time,
            route_complete_time=EXCLUDED.route_complete_time,
+           to_yard_time=EXCLUDED.to_yard_time,
            punch_out=EXCLUDED.punch_out,
            notes=EXCLUDED.notes,
            updated_at=NOW()
          RETURNING *`,
         [
-          employee_id, log_date,
-          route_number || null,
-          punch_in || null,
-          first_stop_time || null,
-          route_complete_time || null,
-          punch_out || null,
-          notes || null
+          employee_id, log_date, route_number || null,
+          punch_in || null, first_stop_time || null,
+          route_complete_time || null, to_yard_time || null,
+          punch_out || null, notes || null
         ]
       );
-
       const row = result.rows[0];
       await upsertPackOuts(client, row.id, pack_outs);
       await client.query('COMMIT');
 
-      // Fetch area for the returned row
-      const areaResult = await pool.query(
-        'SELECT area FROM routes WHERE route_name=$1 LIMIT 1',
-        [row.route_number]
-      );
+      const areaResult = await pool.query('SELECT area FROM routes WHERE route_name=$1 LIMIT 1', [row.route_number]);
       row.route_area = areaResult.rows[0]?.area || null;
-
-      const packOutResult = await pool.query(
-        'SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq',
-        [row.id]
-      );
+      const packOutResult = await pool.query('SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq', [row.id]);
       row.pack_outs = packOutResult.rows;
       res.status(201).json(row);
     } catch (e) {
       await client.query('ROLLBACK');
       res.status(500).json({ error: e.message });
-    } finally {
-      client.release();
-    }
+    } finally { client.release(); }
   });
 
   // ── PUT ────────────────────────────────────────────────────────────────────
@@ -173,51 +156,37 @@ module.exports = (pool) => {
   router.put('/:id', async (req, res) => {
     const {
       route_number, punch_in, first_stop_time,
-      route_complete_time, punch_out, notes, pack_outs
+      route_complete_time, to_yard_time, punch_out, notes, pack_outs
     } = req.body;
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
       const result = await client.query(
         `UPDATE route_logs SET
            route_number=$1, punch_in=$2, first_stop_time=$3,
-           route_complete_time=$4, punch_out=$5, notes=$6, updated_at=NOW()
-         WHERE id=$7 RETURNING *`,
+           route_complete_time=$4, to_yard_time=$5, punch_out=$6,
+           notes=$7, updated_at=NOW()
+         WHERE id=$8 RETURNING *`,
         [
-          route_number || null,
-          punch_in || null,
-          first_stop_time || null,
-          route_complete_time || null,
-          punch_out || null,
-          notes || null,
-          req.params.id
+          route_number || null, punch_in || null, first_stop_time || null,
+          route_complete_time || null, to_yard_time || null,
+          punch_out || null, notes || null, req.params.id
         ]
       );
-
       const row = result.rows[0];
       await upsertPackOuts(client, row.id, pack_outs);
       await client.query('COMMIT');
 
-      const areaResult = await pool.query(
-        'SELECT area FROM routes WHERE route_name=$1 LIMIT 1',
-        [row.route_number]
-      );
+      const areaResult = await pool.query('SELECT area FROM routes WHERE route_name=$1 LIMIT 1', [row.route_number]);
       row.route_area = areaResult.rows[0]?.area || null;
-
-      const packOutResult = await pool.query(
-        'SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq',
-        [row.id]
-      );
+      const packOutResult = await pool.query('SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq', [row.id]);
       row.pack_outs = packOutResult.rows;
       res.json(row);
     } catch (e) {
       await client.query('ROLLBACK');
       res.status(500).json({ error: e.message });
-    } finally {
-      client.release();
-    }
+    } finally { client.release(); }
   });
 
   // ── DELETE ─────────────────────────────────────────────────────────────────

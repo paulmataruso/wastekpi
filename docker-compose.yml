@@ -16,6 +16,7 @@ services:
       - api
       - admin-ui
       - display-ui
+      - slim-display-ui
     networks:
       waste-kpi-net:
         aliases:
@@ -83,6 +84,17 @@ services:
       waste-kpi-net:
         aliases:
           - display-ui
+    restart: unless-stopped
+
+  slim-display-ui:
+    build:
+      context: ./slim-display-ui
+      dockerfile: Dockerfile
+    container_name: waste-kpi-slim-display-ui
+    networks:
+      waste-kpi-net:
+        aliases:
+          - slim-display-ui
     restart: unless-stopped
 
 volumes:

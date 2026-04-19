@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const runMigrations = require('./db/migrate');
 
 const app = express();
 app.use(cors());
@@ -17,10 +18,10 @@ async function seedAdmin() {
     if (existing.rows.length === 0) {
       const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
       await pool.query('INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)', [ADMIN_USERNAME, hash, 'admin']);
-      console.log(`Admin user '${ADMIN_USERNAME}' created.`);
+      console.log(`[seed] Admin user '${ADMIN_USERNAME}' created.`);
     }
   } catch (e) {
-    console.error('Seed admin error:', e.message);
+    console.error('[seed] Admin seed error:', e.message);
   }
 }
 
@@ -34,11 +35,25 @@ app.use('/api/dashboard',  require('./middleware/auth'), require('./routes/dashb
 app.use('/api/import',     require('./middleware/auth'), require('./routes/import')(pool));
 app.use('/api/backup',     require('./middleware/auth'), require('./routes/backup')(pool));
 app.use('/api/users',      require('./middleware/auth'), require('./routes/users')(pool));
+app.use('/api/reports',    require('./middleware/auth'), require('./routes/reports')(pool));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.API_PORT || 4000;
-app.listen(PORT, async () => {
-  console.log(`API listening on port ${PORT}`);
-  setTimeout(seedAdmin, 2000);
-});
+
+async function start() {
+  try {
+    await runMigrations(pool);
+  } catch (e) {
+    console.error('[migrations] Fatal migration error — server will not start.', e.message);
+    process.exit(1);
+  }
+
+  await seedAdmin();
+
+  app.listen(PORT, () => {
+    console.log(`[server] API listening on port ${PORT}`);
+  });
+}
+
+start();

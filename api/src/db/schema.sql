@@ -1,4 +1,4 @@
--- Waste KPI Tracker Schema
+-- Waste KPI Tracker Schema — v1.1.0
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS routes (
     description TEXT,
     area VARCHAR(150),
     active BOOLEAN DEFAULT TRUE,
+    excluded BOOLEAN DEFAULT FALSE,    -- when TRUE, route is hidden from all reports/display
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS route_logs (
     punch_in TIME,
     first_stop_time TIME,
     route_complete_time TIME,
+    to_yard_time TIME,                 -- time driver departed for yard at end of day
     punch_out TIME,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS pack_out_logs (
     seq                INTEGER NOT NULL DEFAULT 1,
     pack_out_time      TIME,
     back_on_route_time TIME,
+    location           VARCHAR(20),    -- dump site: Alva | Naughton | Casella
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 

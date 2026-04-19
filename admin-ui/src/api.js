@@ -55,6 +55,7 @@ export const api = {
 
   routes: {
     list: () => req('/routes'),
+    listAll: () => req('/routes?all=true'),
     create: (b) => req('/routes', { method: 'POST', body: JSON.stringify(b) }),
     update: (id, b) => req(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(b) }),
     delete: (id) => req(`/routes/${id}`, { method: 'DELETE' })
@@ -86,5 +87,23 @@ export const api = {
     create: (b) => req('/users', { method: 'POST', body: JSON.stringify(b) }),
     update: (id, b) => req(`/users/${id}`, { method: 'PUT', body: JSON.stringify(b) }),
     delete: (id) => req(`/users/${id}`, { method: 'DELETE' })
+  },
+
+  reports: {
+    // Friday hours canned report — returns JSON
+    fridayHours: (weekOf) => req(`/reports/friday-hours?week_of=${weekOf}`),
+
+    // Friday hours CSV download — returns raw Response for browser save
+    fridayHoursCsv: (weekOf) => reqRaw(`/reports/friday-hours?week_of=${weekOf}&format=csv`),
+
+    // Custom report builder — returns JSON
+    custom: (body) => req('/reports/custom', { method: 'POST', body: JSON.stringify(body) }),
+
+    // Custom report CSV download — returns raw Response
+    customCsv: (body) => reqRaw('/reports/custom', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, format: 'csv' }),
+      headers: { 'Content-Type': 'application/json' }
+    }),
   }
 };

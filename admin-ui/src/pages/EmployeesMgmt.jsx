@@ -3,19 +3,39 @@ import { api } from '../api';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 
-const empty = { name: '', employee_number: '', position: '', active: true };
+const empty = { name: '', employee_number: '', driver_id: '', position: '', active: true };
+
+// Decode the JWT role from localStorage
+function getCurrentRole() {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return 'user';
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.role || 'user';
+  } catch { return 'user'; }
+}
 
 export default function EmployeesMgmt() {
   const [employees, setEmployees] = useState([]);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(empty);
   const [toast, setToast] = useState(null);
+  const isAdmin = getCurrentRole() === 'admin';
 
   const load = () => api.employees.list().then(setEmployees);
   useEffect(() => { load(); }, []);
 
   function openAdd() { setForm(empty); setModal('add'); }
-  function openEdit(e) { setForm({ name: e.name, employee_number: e.employee_number || '', position: e.position || '', active: e.active }); setModal(e); }
+  function openEdit(e) {
+    setForm({
+      name: e.name,
+      employee_number: e.employee_number || '',
+      driver_id: e.driver_id || '',
+      position: e.position || '',
+      active: e.active,
+    });
+    setModal(e);
+  }
 
   async function save() {
     try {
@@ -52,7 +72,16 @@ export default function EmployeesMgmt() {
           <div className="empty-state"><div className="icon">👷</div><p>No employees yet.</p></div>
         ) : (
           <table>
-            <thead><tr><th>Employee</th><th>ID</th><th>Position</th><th>Status</th><th></th></tr></thead>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Emp #</th>
+                {isAdmin && <th>Driver ID</th>}
+                <th>Position</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
             <tbody>
               {employees.map(emp => (
                 <tr key={emp.id}>
@@ -67,9 +96,20 @@ export default function EmployeesMgmt() {
                       <span style={{ fontWeight: 500 }}>{emp.name}</span>
                     </div>
                   </td>
-                  <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{emp.employee_number || '—'}</td>
+                  <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>
+                    {emp.employee_number || '—'}
+                  </td>
+                  {isAdmin && (
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+                      {emp.driver_id || '—'}
+                    </td>
+                  )}
                   <td style={{ color: 'var(--text2)' }}>{emp.position || '—'}</td>
-                  <td>{emp.active ? <span className="tag tag-green">Active</span> : <span className="tag tag-gray">Inactive</span>}</td>
+                  <td>
+                    {emp.active
+                      ? <span className="tag tag-green">Active</span>
+                      : <span className="tag tag-gray">Inactive</span>}
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn-icon" onClick={() => openEdit(emp)}>✏️</button>
@@ -88,8 +128,9 @@ export default function EmployeesMgmt() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="form-group">
               <label>Full Name *</label>
-              <input value={form.name} onChange={f('name')} placeholder="John Smith" />
+              <input value={form.name} onChange={f('name')} placeholder="John Smith" autoFocus />
             </div>
+
             <div className="form-grid form-grid-2">
               <div className="form-group">
                 <label>Employee Number</label>
@@ -100,10 +141,34 @@ export default function EmployeesMgmt() {
                 <input value={form.position} onChange={f('position')} placeholder="Driver, Loader…" />
               </div>
             </div>
+
+            {/* Driver ID — admin only */}
+            {isAdmin && (
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Driver ID
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99,
+                    background: 'rgba(245,158,11,0.15)', color: 'var(--amber)',
+                    border: '1px solid rgba(245,158,11,0.3)',
+                  }}>Admin only</span>
+                </label>
+                <input
+                  value={form.driver_id}
+                  onChange={f('driver_id')}
+                  placeholder="Internal driver ID (payroll, dispatch…)"
+                />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
+                  Used internally. Not visible to regular users.
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="emp-active" checked={form.active} onChange={f('active')} style={{ width: 'auto' }} />
               <label htmlFor="emp-active" style={{ fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>Active</label>
             </div>
+
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={save}>Save</button>

@@ -12,7 +12,6 @@ http {
     tcp_nodelay   on;
     keepalive_timeout 65;
 
-    # --- Gzip for the reverse proxy leg ---
     gzip on;
     gzip_vary on;
     gzip_proxied any;
@@ -38,12 +37,9 @@ http {
         listen 3300;
         server_name _;
 
-        # ----------------------------------------------------------------
-        # Redirects use the real external host supplied via REAL_HOST env.
-        # ----------------------------------------------------------------
         set $real_host "${REAL_HOST}";
 
-        # API — no caching for API responses
+        # API
         location /api/ {
             set $api_upstream http://api:4000;
             proxy_pass $api_upstream;
@@ -67,17 +63,31 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection 'upgrade';
-            # Allow inner nginx to set its own cache headers
             proxy_pass_header Cache-Control;
         }
 
-        # Display UI
+        # Full display board
         location = /display {
             return 301 $scheme://$real_host/display/;
         }
         location /display/ {
             set $display_upstream http://display-ui:3001;
             proxy_pass $display_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_pass_header Cache-Control;
+        }
+
+        # Slim display board (Next Up + Driver KPIs only)
+        location = /slimdisplay {
+            return 301 $scheme://$real_host/slimdisplay/;
+        }
+        location /slimdisplay/ {
+            set $slim_upstream http://slim-display-ui:3002;
+            proxy_pass $slim_upstream;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

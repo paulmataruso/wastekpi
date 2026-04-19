@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import RouteLogs from './pages/RouteLogs';
 import RoutesMgmt from './pages/RoutesMgmt';
 import EmployeesMgmt from './pages/EmployeesMgmt';
+import Reports from './pages/Reports';
 import Admin from './pages/Admin';
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/route-logs" element={<RouteLogs />} />
           <Route path="/routes" element={<RoutesMgmt />} />
           <Route path="/employees" element={<EmployeesMgmt />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
