@@ -85,8 +85,6 @@ const cellInputStyle = {
   padding: '3px 6px', outline: 'none', minWidth: 90,
 };
 
-// ─── Pack-out popover ─────────────────────────────────────────────────────────
-
 function PackOutPopover({ packOuts, onChange, onClose }) {
   const ref = useRef(null);
 
@@ -151,8 +149,6 @@ function PackOutPopover({ packOuts, onChange, onClose }) {
   );
 }
 
-// ─── Inline editable row ──────────────────────────────────────────────────────
-
 function InlineEditRow({ data, employees, routes, onSave, onCancel, isSaving }) {
   const [form, setForm] = useState(data);
   const [showPackOuts, setShowPackOuts] = useState(false);
@@ -209,8 +205,6 @@ function InlineEditRow({ data, employees, routes, onSave, onCancel, isSaving }) 
   );
 }
 
-// ─── Inline read row ──────────────────────────────────────────────────────────
-
 function InlineReadRow({ log, onEdit, onDelete }) {
   const dl = dayLen(log.punch_in, log.punch_out);
   const complete = !!log.punch_out;
@@ -248,8 +242,6 @@ function InlineReadRow({ log, onEdit, onDelete }) {
     </tr>
   );
 }
-
-// ─── Inline new row ───────────────────────────────────────────────────────────
 
 function InlineNewRow({ employees, routes, loggedEmployeeIds, onSave, isSaving }) {
   const blank = { ...emptyForm, pack_outs: [] };
@@ -314,8 +306,6 @@ function InlineNewRow({ employees, routes, loggedEmployeeIds, onSave, isSaving }
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function RouteLogs() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [logs, setLogs] = useState([]);
@@ -334,8 +324,8 @@ export default function RouteLogs() {
 
   useEffect(() => {
     api.employees.list().then(r => setEmployees(r.filter(e => e.active)));
-    // data entry uses active non-excluded routes only
-    api.routes.list().then(r => setRoutes(r.filter(r => r.active && !r.excluded)));
+    // data entry shows all active routes — excluded only affects analytics/reports, not data entry
+    api.routes.list().then(r => setRoutes(r.filter(r => r.active)));
   }, []);
 
   useEffect(() => { setEditingId(null); load(); }, [date]);
@@ -404,8 +394,6 @@ export default function RouteLogs() {
 
   const loggedIds = new Set(logs.map(l => l.employee_id));
   const unloggedEmployees = employees.filter(e => !loggedIds.has(e.id));
-
-  // Column count depends on mode (status col hidden in inline)
   const COL_COUNT = entryMode === 'form' ? 12 : 11;
 
   return (
@@ -535,7 +523,6 @@ export default function RouteLogs() {
         )}
       </div>
 
-      {/* Form mode modal */}
       {modal && (
         <Modal title={modal === 'add' ? 'Add Route Log Entry' : `Edit — ${modal.employee_name || 'Entry'}`} onClose={() => setModal(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -553,8 +540,6 @@ export default function RouteLogs() {
                 {routes.map(r => <option key={r.id} value={r.route_name}>{r.route_name}{r.area && r.area.trim() ? ` — ${r.area.trim()}` : ''}</option>)}
               </select>
             </div>
-
-            {/* Times card */}
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Times</div>
               <div className="form-grid form-grid-2">
@@ -571,8 +556,6 @@ export default function RouteLogs() {
                 </span>
               </div>
             </div>
-
-            {/* Pack-outs card */}
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
@@ -590,7 +573,6 @@ export default function RouteLogs() {
                     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)' }}>Dump Run #{idx + 1}</span>
                     <button className="btn-icon" type="button" onClick={() => removePackOut(idx)} style={{ fontSize: 14, color: 'var(--danger)', opacity: 0.7 }}>×</button>
                   </div>
-                  {/* 3-column grid: Pack Out | Back On Route | Location */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                     <div className="form-group">
                       <label>Pack Out Time</label>
@@ -611,7 +593,6 @@ export default function RouteLogs() {
                 </div>
               ))}
             </div>
-
             <div className="form-group">
               <label>Route Notes</label>
               <textarea value={form.notes} onChange={f('notes')} rows={3} placeholder="Any notes about the route, incidents, delays…" style={{ resize: 'vertical' }} />
