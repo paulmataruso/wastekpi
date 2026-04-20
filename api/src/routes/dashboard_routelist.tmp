@@ -1,0 +1,34 @@
+        pool.query(`
+          SELECT rl.*,
+            e.name as employee_name, e.position,
+            e.exclude_from_next_up,
+            rt.area as route_area,
+            rt.excluded as route_excluded,
+            CASE
+              WHEN rl.punch_in IS NOT NULL AND rl.punch_out IS NOT NULL
+              THEN ROUND(EXTRACT(EPOCH FROM (rl.punch_out - rl.punch_in))/3600.0, 2)
+              ELSE NULL
+            END as day_length_hours,
+            (
+              SELECT ROUND(AVG(
+                EXTRACT(EPOCH FROM (rl2.route_complete_time - rl2.first_stop_time))/60.0
+              )::numeric, 1)
+              FROM route_logs rl2
+              WHERE rl2.employee_id = rl.employee_id
+                AND rl2.first_stop_time IS NOT NULL
+                AND rl2.route_complete_time IS NOT NULL
+                AND rl2.log_date >= $1::date - INTERVAL '6 days'
+                AND rl2.log_date <= $1::date
+                AND (
+                  rl2.route_number IS NULL
+                  OR NOT EXISTS (
+                    SELECT 1 FROM routes rx
+                    WHERE rx.route_name = rl2.route_number AND rx.excluded = TRUE
+                  )
+                )
+            ) AS avg_route_mins_7d
+          FROM route_logs rl
+          JOIN employees e ON e.id = rl.employee_id
+          LEFT JOIN routes rt ON rt.route_name = rl.route_number
+          WHERE rl.log_date = $1
+          ORDER BY e.name`, [target]),

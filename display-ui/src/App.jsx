@@ -18,11 +18,6 @@ function dayLen(a, b) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-function parseDate(val) {
-  if (!val) return null;
-  return new Date(String(val).slice(0, 10) + 'T00:00:00');
-}
-
 function fmtHours(h) {
   if (!h) return '—';
   const hrs = parseFloat(h);
@@ -66,7 +61,6 @@ function fmtOnClock(mins) {
   return `${h}h ${m}m`;
 }
 
-// Shared route + area display
 function RouteBadge({ routeNumber, routeArea }) {
   if (!routeNumber) return <span style={{ color: 'var(--text3)' }}>—</span>;
   return (
@@ -83,9 +77,10 @@ function RouteBadge({ routeNumber, routeArea }) {
   );
 }
 
+// exclude_from_next_up filters the driver from the recommendation entirely
 function computeNextUp(logs, now) {
   return logs
-    .filter(r => !!r.punch_in)
+    .filter(r => !!r.punch_in && !r.exclude_from_next_up)
     .map(r => ({ ...r, mins_on_clock: minutesOnClock(r.punch_in, now) }))
     .sort((a, b) => {
       const ta = timeToDate(a.punch_in);
@@ -97,7 +92,6 @@ function computeNextUp(logs, now) {
     });
 }
 
-// ── Stat tile — standard ──────────────────────────────────────────────────────
 function StatTile({ label, value, sub, color = 'var(--text)', accent }) {
   return (
     <div style={{ background: 'var(--bg2)', border: `1px solid ${accent || 'var(--border)'}`, borderTop: accent ? `3px solid ${accent}` : `1px solid var(--border)`, borderRadius: 12, padding: '18px 22px' }}>
@@ -108,18 +102,15 @@ function StatTile({ label, value, sub, color = 'var(--text)', accent }) {
   );
 }
 
-// ── Longest Avg Route tile — sits in the stat row ─────────────────────────────
 function LongestRouteTile({ topRoutes }) {
   const r7  = topRoutes?.route_7d  || '—';
   const h7  = fmtHours(topRoutes?.avg_hours_7d);
   const r30 = topRoutes?.route_30d || '—';
   const h30 = fmtHours(topRoutes?.avg_hours_30d);
-
   return (
     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: '3px solid var(--amber)', borderRadius: 12, padding: '18px 22px' }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Longest Avg Route</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {/* 7-day */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>7d</span>
@@ -128,7 +119,6 @@ function LongestRouteTile({ topRoutes }) {
           <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: 'var(--text2)' }}>{h7}</span>
         </div>
         <div style={{ height: 1, background: 'var(--border)' }} />
-        {/* 30-day */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>30d</span>
@@ -163,7 +153,7 @@ function NextUpCard({ logs, now }) {
       </div>
 
       {ranked.length === 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', flex: 1, color: 'var(--text3)', fontSize: 13 }}>No drivers punched in today</div>
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, color: 'var(--text3)', fontSize: 13 }}>No drivers available</div>
       ) : (
         <>
           <div style={{ paddingBottom: 12, borderBottom: '1px solid var(--border)', marginBottom: 10, flexShrink: 0 }}>
@@ -314,7 +304,6 @@ const COL_COUNT = 10;
 
 function DriverTable({ logs }) {
   const sorted = sortedByRoutePace(logs);
-
   return (
     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -345,25 +334,18 @@ function DriverTable({ logs }) {
                 const avgMins = r.avg_route_mins_7d != null ? parseFloat(r.avg_route_mins_7d) : null;
                 const hasNotes = !!(r.notes && r.notes.trim());
                 const rowStyle = { background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' };
-
                 return (
                   <React.Fragment key={r.id}>
                     <tr style={rowStyle}>
-                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {avgMins !== null ? `#${i + 1}` : '—'}
-                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{avgMins !== null ? `#${i + 1}` : '—'}</td>
                       <td style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600 }}>{r.employee_name}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <RouteBadge routeNumber={r.route_number} routeArea={r.route_area} />
-                      </td>
+                      <td style={{ padding: '10px 14px' }}><RouteBadge routeNumber={r.route_number} routeArea={r.route_area} /></td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.punch_in)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.first_stop_time)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.route_complete_time)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.punch_out)}</td>
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: dl ? 'var(--green)' : 'var(--text3)' }}>{dl || '—'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: avgMins !== null ? 'var(--blue)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {avgMins !== null ? fmtMins(avgMins) : '—'}
-                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: avgMins !== null ? 'var(--blue)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>{avgMins !== null ? fmtMins(avgMins) : '—'}</td>
                       <td style={{ padding: '10px 14px' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: statusColor[status] }}>
                           {status === 'active' && <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', marginRight: 5, verticalAlign: 'middle', animation: 'pulse 1.5s infinite' }} />}
@@ -371,25 +353,13 @@ function DriverTable({ logs }) {
                         </span>
                       </td>
                     </tr>
-
-                    {/* Notes bar — always visible when a note exists */}
                     {hasNotes && (
                       <tr style={{ background: rowStyle.background }}>
                         <td colSpan={COL_COUNT} style={{ padding: '0 14px 8px 14px', borderBottom: '1px solid var(--border)' }}>
-                          <div style={{
-                            display: 'flex', alignItems: 'flex-start', gap: 8,
-                            padding: '7px 12px',
-                            background: 'rgba(245,158,11,0.07)',
-                            border: '1px solid rgba(245,158,11,0.18)',
-                            borderRadius: 6,
-                          }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 2, flexShrink: 0 }}>
-                              📋 Note
-                            </span>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.18)', borderRadius: 6 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 2, flexShrink: 0 }}>📋 Note</span>
                             <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(245,158,11,0.25)', flexShrink: 0 }} />
-                            <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {r.notes}
-                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.notes}</span>
                           </div>
                         </td>
                       </tr>
@@ -429,10 +399,10 @@ export default function App() {
     return () => clearInterval(t);
   }, [load]);
 
-  const stats    = data?.stats || {};
-  const logs     = data?.route_logs || [];
-  const topRoutes = data?.top_routes || null;
-  const clockAvgs = data?.clock_avgs || null;
+  const stats       = data?.stats || {};
+  const logs        = data?.route_logs || [];
+  const topRoutes   = data?.top_routes || null;
+  const clockAvgs   = data?.clock_avgs || null;
   const firstStopAvgs = data?.first_stop_avgs || null;
 
   return (
@@ -454,8 +424,6 @@ export default function App() {
       </header>
 
       <div style={{ flex: 1, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-
-        {/* Row 1: 6 stat tiles — Longest Avg Route slotted between Punched In and Avg Day Length */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, flexShrink: 0 }}>
           <StatTile label="Routes Complete" value={stats.routes_completed || 0} sub={`of ${stats.total_drivers || 0} logged`} color="var(--green)" accent="var(--green)" />
           <StatTile label="In Progress" value={logs.filter(r => r.punch_in && !r.punch_out).length} color="var(--blue)" accent="var(--blue)" />
@@ -464,19 +432,14 @@ export default function App() {
           <StatTile label="Avg Day Length" value={stats.avg_day_length_hours ? stats.avg_day_length_hours + 'h' : '—'} sub="punch in → out" />
           <StatTile label="Avg Route Time" value={stats.avg_route_duration_hours ? stats.avg_route_duration_hours + 'h' : '—'} sub="punch in → complete" />
         </div>
-
-        {/* Row 2: insight cards */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, flexShrink: 0 }}>
           <ClockAvgCard clockAvgs={clockAvgs} />
           <FirstStopCard firstStopAvgs={firstStopAvgs} />
         </div>
-
-        {/* Row 3: NextUpCard (25%) + DriverTable (75%) — fills all remaining space */}
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 3fr', gap: 10 }}>
           <NextUpCard logs={logs} now={now} />
           <DriverTable logs={logs} />
         </div>
-
       </div>
     </div>
   );

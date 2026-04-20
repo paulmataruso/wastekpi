@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 const REFRESH_INTERVAL = 60000;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function fmt(t) {
   if (!t) return '—';
   const parts = t.slice(0, 5).split(':');
@@ -55,29 +53,15 @@ function fmtOnClock(mins) {
   return `${h}h ${m}m`;
 }
 
-// ─── Shared components ────────────────────────────────────────────────────────
-
 function RouteBadge({ routeNumber, routeArea }) {
   if (!routeNumber) return <span style={{ color: 'var(--text3)' }}>—</span>;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-      <span style={{
-        fontFamily: 'var(--mono)', fontSize: 12,
-        background: 'rgba(255,255,255,0.05)',
-        padding: '2px 8px', borderRadius: 4,
-        color: 'var(--text)'
-      }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 12, background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: 4, color: 'var(--text)' }}>
         {routeNumber}
       </span>
       {routeArea && routeArea.trim() && (
-        <span style={{
-          fontSize: 10, fontWeight: 600,
-          background: 'rgba(79,195,247,0.12)',
-          color: 'var(--blue)',
-          border: '1px solid rgba(79,195,247,0.25)',
-          padding: '1px 7px', borderRadius: 99,
-          letterSpacing: '0.04em', whiteSpace: 'nowrap'
-        }}>
+        <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(79,195,247,0.12)', color: 'var(--blue)', border: '1px solid rgba(79,195,247,0.25)', padding: '1px 7px', borderRadius: 99, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
           {routeArea.trim()}
         </span>
       )}
@@ -103,11 +87,10 @@ function Clock() {
   );
 }
 
-// ─── Next Up ──────────────────────────────────────────────────────────────────
-
+// exclude_from_next_up filters the driver from the recommendation entirely
 function computeNextUp(logs, now) {
   return logs
-    .filter(r => !!r.punch_in)
+    .filter(r => !!r.punch_in && !r.exclude_from_next_up)
     .map(r => ({ ...r, mins_on_clock: minutesOnClock(r.punch_in, now) }))
     .sort((a, b) => {
       const ta = timeToDate(a.punch_in);
@@ -131,13 +114,7 @@ function NextUpCard({ logs, now }) {
   };
 
   return (
-    <div style={{
-      background: 'var(--bg2)', border: '1px solid var(--border)',
-      borderTop: '3px solid #f59e0b', borderRadius: 12,
-      padding: '14px 18px', height: '100%',
-      display: 'flex', flexDirection: 'column',
-      overflow: 'hidden', boxSizing: 'border-box',
-    }}>
+    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: '3px solid #f59e0b', borderRadius: 12, padding: '14px 18px', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#f59e0b' }}>Next Up</div>
@@ -147,21 +124,14 @@ function NextUpCard({ logs, now }) {
       </div>
 
       {ranked.length === 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', flex: 1, color: 'var(--text3)', fontSize: 13 }}>
-          No drivers punched in today
-        </div>
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, color: 'var(--text3)', fontSize: 13 }}>No drivers available</div>
       ) : (
         <>
-          {/* Primary pick */}
           <div style={{ paddingBottom: 12, borderBottom: '1px solid var(--border)', marginBottom: 10, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0, animation: 'pulse 1.5s infinite' }} />
-              <span style={{ fontFamily: 'var(--font-cond)', fontSize: 24, fontWeight: 700, color: '#f59e0b', letterSpacing: 1, lineHeight: 1 }}>
-                {top.employee_name}
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: statusLabel(top).color, letterSpacing: '0.08em' }}>
-                {statusLabel(top).text}
-              </span>
+              <span style={{ fontFamily: 'var(--font-cond)', fontSize: 24, fontWeight: 700, color: '#f59e0b', letterSpacing: 1, lineHeight: 1 }}>{top.employee_name}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: statusLabel(top).color, letterSpacing: '0.08em' }}>{statusLabel(top).text}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -181,12 +151,9 @@ function NextUpCard({ logs, now }) {
             </div>
           </div>
 
-          {/* Also Available list */}
           {rest.length > 0 && (
             <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-                Also Available
-              </div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Also Available</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {rest.map((r, idx) => {
                   const sl = statusLabel(r);
@@ -198,9 +165,7 @@ function NextUpCard({ logs, now }) {
                         <span style={{ fontSize: 9, fontWeight: 700, color: sl.color, letterSpacing: '0.06em', marginLeft: 'auto' }}>{sl.text}</span>
                       </div>
                       <div style={{ paddingLeft: 26, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)' }}>
-                          in {fmt(r.punch_in)} · {fmtOnClock(r.mins_on_clock)} on clock
-                        </span>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)' }}>in {fmt(r.punch_in)} · {fmtOnClock(r.mins_on_clock)} on clock</span>
                         {r.route_number && <RouteBadge routeNumber={r.route_number} routeArea={r.route_area} />}
                       </div>
                     </div>
@@ -214,8 +179,6 @@ function NextUpCard({ logs, now }) {
     </div>
   );
 }
-
-// ─── Driver KPI Table ─────────────────────────────────────────────────────────
 
 function sortedByRoutePace(logs) {
   return [...logs].sort((a, b) => {
@@ -232,7 +195,6 @@ const COL_COUNT = 10;
 
 function DriverTable({ logs }) {
   const sorted = sortedByRoutePace(logs);
-
   return (
     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -263,53 +225,32 @@ function DriverTable({ logs }) {
                 const avgMins = r.avg_route_mins_7d != null ? parseFloat(r.avg_route_mins_7d) : null;
                 const hasNotes = !!(r.notes && r.notes.trim());
                 const rowStyle = { background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' };
-
                 return (
                   <React.Fragment key={r.id}>
                     <tr style={rowStyle}>
-                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {avgMins !== null ? `#${i + 1}` : '—'}
-                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{avgMins !== null ? `#${i + 1}` : '—'}</td>
                       <td style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600 }}>{r.employee_name}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <RouteBadge routeNumber={r.route_number} routeArea={r.route_area} />
-                      </td>
+                      <td style={{ padding: '10px 14px' }}><RouteBadge routeNumber={r.route_number} routeArea={r.route_area} /></td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.punch_in)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.first_stop_time)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.route_complete_time)}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>{fmt(r.punch_out)}</td>
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: dl ? 'var(--green)' : 'var(--text3)' }}>{dl || '—'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: avgMins !== null ? 'var(--blue)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {avgMins !== null ? fmtMins(avgMins) : '—'}
-                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: avgMins !== null ? 'var(--blue)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>{avgMins !== null ? fmtMins(avgMins) : '—'}</td>
                       <td style={{ padding: '10px 14px' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: statusColor[status] }}>
-                          {status === 'active' && (
-                            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', marginRight: 5, verticalAlign: 'middle', animation: 'pulse 1.5s infinite' }} />
-                          )}
+                          {status === 'active' && <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', marginRight: 5, verticalAlign: 'middle', animation: 'pulse 1.5s infinite' }} />}
                           {statusLabel[status]}
                         </span>
                       </td>
                     </tr>
-
-                    {/* Notes bar — always visible when a note exists */}
                     {hasNotes && (
                       <tr style={{ background: rowStyle.background }}>
                         <td colSpan={COL_COUNT} style={{ padding: '0 14px 8px 14px', borderBottom: '1px solid var(--border)' }}>
-                          <div style={{
-                            display: 'flex', alignItems: 'flex-start', gap: 8,
-                            padding: '7px 12px',
-                            background: 'rgba(245,158,11,0.07)',
-                            border: '1px solid rgba(245,158,11,0.18)',
-                            borderRadius: 6,
-                          }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 2, flexShrink: 0 }}>
-                              📋 Note
-                            </span>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.18)', borderRadius: 6 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 2, flexShrink: 0 }}>📋 Note</span>
                             <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(245,158,11,0.25)', flexShrink: 0 }} />
-                            <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {r.notes}
-                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.notes}</span>
                           </div>
                         </td>
                       </tr>
@@ -324,8 +265,6 @@ function DriverTable({ logs }) {
     </div>
   );
 }
-
-// ─── Root App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -354,15 +293,9 @@ export default function App() {
   const logs = data?.route_logs || [];
 
   return (
-    <div style={{
-      height: '100vh', width: '100vw', overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-      background: 'var(--bg)',
-      backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(0,230,118,0.04) 0%, transparent 50%), radial-gradient(ellipse at 80% 100%, rgba(79,195,247,0.03) 0%, transparent 50%)'
-    }}>
+    <div style={{ height: '100vh', width: '100vw', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'var(--bg)', backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(0,230,118,0.04) 0%, transparent 50%), radial-gradient(ellipse at 80% 100%, rgba(79,195,247,0.03) 0%, transparent 50%)' }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
 
-      {/* Header */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 28px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--green-dim)', border: '1px solid var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>♻</div>
@@ -372,16 +305,11 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          {lastUpdate && (
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-              Updated {lastUpdate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-          )}
+          {lastUpdate && <div style={{ fontSize: 11, color: 'var(--text3)' }}>Updated {lastUpdate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>}
           <Clock />
         </div>
       </header>
 
-      {/* Main — two panels side by side filling all remaining height */}
       <div style={{ flex: 1, padding: '14px 18px', minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 3fr', gap: 10 }}>
         <NextUpCard logs={logs} now={now} />
         <DriverTable logs={logs} />

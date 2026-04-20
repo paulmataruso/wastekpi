@@ -3,9 +3,8 @@ import { api } from '../api';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 
-const empty = { name: '', employee_number: '', driver_id: '', position: '', active: true };
+const empty = { name: '', employee_number: '', driver_id: '', position: '', active: true, exclude_from_next_up: false };
 
-// Decode the JWT role from localStorage
 function getCurrentRole() {
   try {
     const token = localStorage.getItem('token');
@@ -33,6 +32,7 @@ export default function EmployeesMgmt() {
       driver_id: e.driver_id || '',
       position: e.position || '',
       active: e.active,
+      exclude_from_next_up: e.exclude_from_next_up || false,
     });
     setModal(e);
   }
@@ -79,6 +79,7 @@ export default function EmployeesMgmt() {
                 {isAdmin && <th>Driver ID</th>}
                 <th>Position</th>
                 <th>Status</th>
+                <th>Next Up</th>
                 <th></th>
               </tr>
             </thead>
@@ -109,6 +110,11 @@ export default function EmployeesMgmt() {
                     {emp.active
                       ? <span className="tag tag-green">Active</span>
                       : <span className="tag tag-gray">Inactive</span>}
+                  </td>
+                  <td>
+                    {emp.exclude_from_next_up
+                      ? <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', padding: '2px 8px', borderRadius: 99, background: 'var(--bg3)', border: '1px solid var(--border)' }}>Excluded</span>
+                      : <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', padding: '2px 8px', borderRadius: 99, background: 'var(--accent-dim)', border: '1px solid rgba(74,222,128,0.25)' }}>Included</span>}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -164,9 +170,32 @@ export default function EmployeesMgmt() {
               </div>
             )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" id="emp-active" checked={form.active} onChange={f('active')} style={{ width: 'auto' }} />
-              <label htmlFor="emp-active" style={{ fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>Active</label>
+            {/* Settings section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Settings</div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" id="emp-active" checked={form.active} onChange={f('active')} style={{ width: 'auto' }} />
+                <label htmlFor="emp-active" style={{ fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>Active</label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  id="emp-exclude-next-up"
+                  checked={form.exclude_from_next_up}
+                  onChange={f('exclude_from_next_up')}
+                  style={{ width: 'auto', marginTop: 2 }}
+                />
+                <label htmlFor="emp-exclude-next-up" style={{ cursor: 'pointer' }}>
+                  <span style={{ fontSize: 13, color: form.exclude_from_next_up ? 'var(--text3)' : 'var(--text)' }}>
+                    Exclude from Route Assignment Recommendation
+                  </span>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                    When checked, this driver will not appear in the Next Up calculation on either display board.
+                  </div>
+                </label>
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

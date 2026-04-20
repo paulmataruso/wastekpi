@@ -33,24 +33,22 @@ http {
 
     resolver 127.0.0.11 valid=30s ipv6=off;
 
+    # map must live in the http block, not inside server
+    map $http_x_forwarded_proto $real_scheme {
+        default $scheme;
+        https   https;
+        http    http;
+    }
+
     server {
         listen 3300;
         server_name _;
 
-        # Use X-Forwarded-Proto if set by upstream proxy (handles https termination)
-        # Falls back to $scheme if not present
-        map $http_x_forwarded_proto $real_scheme {
-            default $scheme;
-            https   https;
-            http    http;
-        }
-
-        set $real_host "${REAL_HOST}";
+        set $real_host "REAL_HOST_VALUE";
 
         # ── API ────────────────────────────────────────────────────────────
         location /api/ {
-            set $api_upstream http://api:4000;
-            proxy_pass $api_upstream;
+            proxy_pass http://api:4000;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -64,8 +62,7 @@ http {
             return 301 $real_scheme://$real_host/admin/;
         }
         location /admin/ {
-            set $admin_upstream http://admin-ui:3000;
-            proxy_pass $admin_upstream;
+            proxy_pass http://admin-ui:3000;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -79,8 +76,7 @@ http {
             return 301 $real_scheme://$real_host/display/;
         }
         location /display/ {
-            set $display_upstream http://display-ui:3001;
-            proxy_pass $display_upstream;
+            proxy_pass http://display-ui:3001;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -94,8 +90,7 @@ http {
             return 301 $real_scheme://$real_host/slimdisplay/;
         }
         location /slimdisplay/ {
-            set $slim_upstream http://slim-display-ui:3002;
-            proxy_pass $slim_upstream;
+            proxy_pass http://slim-display-ui:3002;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

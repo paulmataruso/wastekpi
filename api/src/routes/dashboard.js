@@ -3,9 +3,6 @@ const express = require('express');
 module.exports = (pool) => {
   const router = express.Router();
 
-  // Excluded-route filter clause — joins routes table and skips excluded ones.
-  // Used in every sub-query that touches route_logs.
-  // rl = alias for route_logs, rt = alias for routes (joined on route_number)
   const EXCLUDE_FILTER = `
     AND (
       rl.route_number IS NULL
@@ -22,7 +19,6 @@ module.exports = (pool) => {
     try {
       const [routeStats, routeList, weekRoutes, topRoutes, clockAvgs, firstStopAvgs] = await Promise.all([
 
-        // Daily summary stats — exclude rows on excluded routes
         pool.query(`
           SELECT
             COUNT(*) as total_drivers,
@@ -40,11 +36,11 @@ module.exports = (pool) => {
           FROM route_logs rl
           WHERE log_date=$1 ${EXCLUDE_FILTER}`, [target]),
 
-        // Full daily log — all rows regardless of exclusion (so display board shows everyone)
-        // But avg_route_mins_7d sub-query excludes excluded routes from the average
+        // Full daily log — include exclude_from_next_up so display boards can filter Next Up
         pool.query(`
           SELECT rl.*,
             e.name as employee_name, e.position,
+            e.exclude_from_next_up,
             rt.area as route_area,
             rt.excluded as route_excluded,
             CASE
@@ -76,7 +72,6 @@ module.exports = (pool) => {
           WHERE rl.log_date = $1
           ORDER BY e.name`, [target]),
 
-        // 7-day trend — exclude excluded routes
         pool.query(`
           SELECT
             rl.log_date,
@@ -93,7 +88,6 @@ module.exports = (pool) => {
           GROUP BY rl.log_date
           ORDER BY rl.log_date`, [target]),
 
-        // Top route by avg day length — exclude excluded routes
         pool.query(`
           WITH window_7 AS (
             SELECT
@@ -126,7 +120,6 @@ module.exports = (pool) => {
             w30.route_number AS route_30d, w30.avg_hours AS avg_hours_30d, w30.runs AS runs_30d
           FROM window_7 w7 FULL OUTER JOIN window_30 w30 ON true`, [target]),
 
-        // Avg clock-in and clock-out times — exclude excluded routes
         pool.query(`
           SELECT
             TO_CHAR(
@@ -160,7 +153,6 @@ module.exports = (pool) => {
           FROM route_logs rl
           WHERE ${EXCLUDE_FILTER.replace(/^\s*AND\s*/, '1=1 AND ')}`, [target]),
 
-        // Avg punch-in to first-stop — exclude excluded routes
         pool.query(`
           SELECT
             ROUND(AVG(EXTRACT(EPOCH FROM (first_stop_time - punch_in))/60.0) FILTER (
@@ -175,7 +167,6 @@ module.exports = (pool) => {
           WHERE ${EXCLUDE_FILTER.replace(/^\s*AND\s*/, '1=1 AND ')}`, [target])
       ]);
 
-      // Attach pack_out_logs to each daily row
       const rows = routeList.rows;
       if (rows.length > 0) {
         const packOutResult = await pool.query(
