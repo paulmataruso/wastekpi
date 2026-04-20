@@ -3,108 +3,100 @@
 ## Requirements
 
 - Docker Engine 24+ and Docker Compose v2
-- A Linux host (bare metal, VM, or VPS) — works on Ubuntu 22.04/24.04, Debian 12, RHEL 9
-- Port 3300 accessible (or configure your upstream proxy to forward to it)
+- Linux host — Ubuntu 22.04/24.04, Debian 12, RHEL 9
+- Port 3300 accessible (or configure an upstream proxy)
 - 512 MB RAM minimum; 1 GB+ recommended
 
 ---
 
 ## Installation
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/waste-kpi.git
 cd waste-kpi
 ```
 
-### 2. Configure environment
+### 2. Configure
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Required settings:
-
 | Variable | Description | Example |
 |---|---|---|
 | `POSTGRES_DB` | Database name | `waste_kpi` |
 | `POSTGRES_USER` | Database user | `waste_user` |
 | `POSTGRES_PASSWORD` | **Strong password** | `MyStr0ngP@ss!` |
-| `JWT_SECRET` | Random string ≥ 32 chars | `a8f3...` (use `openssl rand -hex 32`) |
+| `JWT_SECRET` | Random string ≥ 32 chars | `openssl rand -hex 32` |
 | `ADMIN_USERNAME` | Initial admin username | `admin` |
 | `ADMIN_PASSWORD` | Initial admin password | `ChangeMe!123` |
 | `REAL_HOST` | External hostname | `wastekpi.example.com` or `localhost:3300` |
 
-Generate a secure JWT secret:
-```bash
-openssl rand -hex 32
-```
-
-### 3. Build images
+### 3. Build and start
 
 ```bash
 docker compose build
-```
-
-This compiles both React apps and packages the Node.js API. First build takes 2–5 minutes.
-
-### 4. Start services
-
-```bash
 docker compose up -d
 ```
 
-### 5. Verify
+Database migrations run automatically on first startup. No manual SQL needed.
+
+### 4. Verify
 
 ```bash
-docker compose ps          # all services should show "running"
-docker compose logs api    # should show "API listening on port 4000"
-curl http://localhost:3300/api/health   # should return {"status":"ok"}
+docker compose ps
+curl http://localhost:3300/api/health   # {"status":"ok"}
 ```
 
-### 6. First login
+### 5. First login
 
-Navigate to `http://localhost:3300/admin/` and log in with your `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+`http://localhost:3300/admin/` — log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 
-**Immediately change the admin password:** Admin Settings → 👤 Users → Edit your account.
+**Change the admin password immediately:** Admin Settings → 👤 Users → Edit.
 
 ---
 
-## Reverse Proxy Setup (Nginx Proxy Manager / Traefik)
+## Upstream Proxy Setup (Nginx Proxy Manager)
 
-If you're placing this behind an upstream reverse proxy:
+Point your proxy host at `http://your-server-ip:3300`. In the **Advanced** tab (NPM), add:
 
-1. Set `REAL_HOST` in `.env` to your public domain name, e.g. `wastekpi.example.com`
-2. Point your proxy to `http://your-server-ip:3300`
-3. The inner Nginx will issue redirects using the `REAL_HOST` value so URLs remain correct
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_http_version 1.1;
+```
 
-**Example NPM configuration:**
-- Forward hostname/IP: `your-server-ip`
-- Forward port: `3300`
-- No Websocket support needed
-- SSL can be terminated at NPM
+These headers are required. Without `X-Forwarded-Proto` the app's redirects will use the wrong scheme.
+
+Set `REAL_HOST` in `.env` to your public domain (e.g. `wastekpi.example.com`).
 
 ---
 
-## Database Initialization
+## Migrations
 
-The schema (`api/src/db/schema.sql`) runs automatically on first start via PostgreSQL's `docker-entrypoint-initdb.d/` mechanism. It creates all tables and seeds:
+Migrations run automatically every time the API container starts. The runner checks which `NNN_*.sql` files in `api/src/db/` have not yet been recorded in the `schema_migrations` table and applies them in order.
 
-- 8 routes (Route 1 through Route 8, with blank area fields)
-- 12 employees (Justin, Brent, Chuck, Bryan SR, George, Mike, Bryan JR, Marcel, Jake, Chloe, Paige, Syd)
+To add a new migration: create `api/src/db/004_description.sql`. It will be applied on next startup.
 
-To populate route area fields, go to Admin Portal → Routes and edit each route.
+If a migration fails, the API exits immediately with an error visible in `docker logs waste-kpi-api`.
 
-### Pack-out migration (existing installations only)
+---
 
-If upgrading from a version before pack-out support was added:
+## URLs
 
-```bash
-docker exec -i waste-kpi-postgres psql -U waste_user -d waste_kpi \
-  < api/src/db/migration_packout.sql
-```
+| URL | Description |
+|---|---|
+| `/admin/` | Admin portal |
+| `/display/` | Full display board |
+| `/slimdisplay/` | Slim display board (Next Up + KPI table only) |
+| `/api/health` | Health check |
 
 ---
 
@@ -112,54 +104,34 @@ docker exec -i waste-kpi-postgres psql -U waste_user -d waste_kpi \
 
 ```bash
 git pull
-docker compose build --no-cache api admin-ui display-ui
+docker compose build --no-cache
 docker compose up -d
 ```
 
-> Always take a backup before updating: Admin Settings → 💾 Backup & Restore → Download Backup
+Always take a backup first: Admin Settings → 💾 Backup & Restore → Download Backup.
 
 ---
 
-## Stopping and Removing
+## Stopping
 
 ```bash
-# Stop containers, keep data
-docker compose down
-
-# Stop containers and DESTROY all data (irreversible)
-docker compose down -v
+docker compose down          # stop, keep data
+docker compose down -v       # stop and DESTROY all data
 ```
 
 ---
 
 ## Common Issues
 
-**Port 3300 already in use:**
-Change the host port in `docker-compose.yml`:
-```yaml
-ports:
-  - "3400:3300"   # use 3400 on the host instead
-```
+**502 Bad Gateway from upstream proxy** — add the proxy headers listed above to your NPM/Traefik config.
 
-**Database not initializing:**
-The schema only runs if the `postgres_data` volume does not exist. If you need to re-initialize:
-```bash
-docker compose down -v   # destroys data
-docker compose up -d
-```
+**Port 3300 in use** — change the host port in `docker-compose.yml`: `"3400:3300"`.
+
+**Migration failed on startup** — run `docker logs waste-kpi-api` to see the exact SQL error.
 
 **Admin password forgotten:**
-Connect to the database directly and reset:
 ```bash
 docker exec -it waste-kpi-postgres psql -U waste_user -d waste_kpi
-```
-```sql
-UPDATE users SET password_hash = '$2a$10$...' WHERE username = 'admin';
-```
-Or use `bcrypt-cli` to generate a new hash, or delete the user and let the seeder recreate it on next startup if `ADMIN_USERNAME`/`ADMIN_PASSWORD` are set.
-
-**Containers restart looping:**
-```bash
-docker compose logs api      # check for database connection errors
-docker compose logs postgres # check for init errors
+# Then: DELETE FROM users WHERE username='admin';
+# Restart the API — ADMIN_USERNAME/ADMIN_PASSWORD will reseed it.
 ```

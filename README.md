@@ -1,8 +1,8 @@
 # Waste Management KPI Tracker
 
-A self-hosted, Docker-based operations dashboard for small waste management companies. Tracks daily driver KPIs — punch in/out times, route completion, first stop time, and pack-out (dump) events — and displays live metrics on a read-only TV display board.
+A self-hosted, Docker-based operations dashboard for small waste management companies. Tracks daily driver KPIs — punch in/out times, route completion, first stop, to-yard time, and pack-out (dump) events — and displays live metrics on read-only TV display boards.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker](https://img.shields.io/badge/docker-compose-blue)
 
@@ -12,24 +12,27 @@ A self-hosted, Docker-based operations dashboard for small waste management comp
 
 ### Admin Portal (`/admin/`)
 - **Daily Route Log entry** — Form mode (modal) or Excel-style inline editing with custom time picker
-- **Pack-out event tracking** — Multiple dump runs per driver per day
-- **Driver & Route management** — Active/inactive status, route area tagging
+- **Pack-out event tracking** — Multiple dump runs per driver per day with location (Alva / Naughton / Casella)
+- **To Yard time** — Track when each driver departs for the yard at end of day
+- **Driver & Route management** — Active/inactive, area tagging, route exclusion from analytics
+- **Driver ID** — Internal identifier per driver (admin-only, not exposed to regular users)
+- **Reports** — Friday Hours canned report + flexible custom report builder with CSV export
 - **CSV Import / Export** — Bulk data entry with pack-out column support
-- **Dashboard** — Daily summary, 7-day trend, top routes
-- **Backup & Restore** — Full JSON snapshot download + restore
-- **Data Erase** — Double-confirmed wipe of all operational data
+- **Backup & Restore** — Full JSON snapshot download + restore + data erase
 - **User Management** — Per-user logins with Admin/User role separation
+- **Auto-migrations** — Database schema migrations run automatically on startup
 
-### Display Board (`/display/`)
-- Read-only TV dashboard, no login required
-- Live clock, stat tiles, driver KPI table with notes
-- Route assignment recommendation (Next Up card)
-- Auto-refreshes every 60 seconds
+### Display Boards
+- **Full board** (`/display/`) — Stat tiles, insight cards, Next Up recommendation, Driver KPI table
+- **Slim board** (`/slimdisplay/`) — Next Up + Driver KPI table only, ideal for smaller screens
+- Read-only, no login required, auto-refreshes every 60 seconds
+- Excluded routes are filtered from all stats and averages
 
 ### API (`/api/`)
 - JWT-authenticated REST API
 - Full CRUD for all entities
 - Role-based access control (admin vs user)
+- Reports endpoints for canned and custom queries
 
 ---
 
@@ -40,6 +43,7 @@ A self-hosted, Docker-based operations dashboard for small waste management comp
 | Reverse proxy | Nginx (Alpine) |
 | Frontend (Admin) | React 18 + Vite |
 | Frontend (Display) | React 18 + Vite |
+| Frontend (Slim Display) | React 18 + Vite |
 | API | Node.js 20 + Express |
 | Database | PostgreSQL 16 |
 | Auth | JWT (bcryptjs) |
@@ -70,14 +74,33 @@ docker compose build
 docker compose up -d
 ```
 
+Migrations run automatically on first startup. No manual SQL needed.
+
 ### 3. Access
 
 | URL | Description |
 |---|---|
 | `http://localhost:3300/admin/` | Admin portal (default: admin / admin123) |
-| `http://localhost:3300/display/` | Read-only display board |
+| `http://localhost:3300/display/` | Full display board |
+| `http://localhost:3300/slimdisplay/` | Slim display board (Next Up + KPIs only) |
 
 > **Change the default admin password immediately** after first login via Admin Settings → Users.
+
+---
+
+## Upstream Proxy (Nginx Proxy Manager, Traefik, etc.)
+
+If running behind NPM or another proxy, add these headers to your proxy host config:
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_http_version 1.1;
+```
 
 ---
 
@@ -88,7 +111,7 @@ See the [`docs/`](docs/) folder:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — System design, container layout, data flow
 - [`docs/API.md`](docs/API.md) — Full API reference with endpoints and request/response shapes
 - [`docs/SETUP.md`](docs/SETUP.md) — Detailed installation and configuration guide
-- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — How to use the admin portal and display board
+- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — How to use the admin portal and display boards
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — Local development setup, project structure
 
 ---
@@ -97,13 +120,16 @@ See the [`docs/`](docs/) folder:
 
 ```
 waste-kpi/
-├── api/                    # Node.js/Express REST API
+├── api/                        # Node.js/Express REST API
 │   ├── src/
 │   │   ├── db/
-│   │   │   ├── schema.sql          # Database schema + seed data
-│   │   │   └── migration_packout.sql
+│   │   │   ├── schema.sql              # Full schema + seed data
+│   │   │   ├── migrate.js              # Auto-migration runner
+│   │   │   ├── 001_add_packout_table.sql
+│   │   │   ├── 002_v1_1_new_columns.sql
+│   │   │   └── 003_add_driver_id.sql
 │   │   ├── middleware/
-│   │   │   └── auth.js             # JWT verification middleware
+│   │   │   └── auth.js
 │   │   ├── routes/
 │   │   │   ├── auth.js
 │   │   │   ├── employees.js
@@ -114,11 +140,12 @@ waste-kpi/
 │   │   │   ├── dashboard.js
 │   │   │   ├── import.js
 │   │   │   ├── backup.js
-│   │   │   └── users.js
+│   │   │   ├── users.js
+│   │   │   └── reports.js
 │   │   └── index.js
 │   ├── Dockerfile
 │   └── package.json
-├── admin-ui/               # React admin portal
+├── admin-ui/                   # React admin portal
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Layout.jsx
@@ -134,18 +161,21 @@ waste-kpi/
 │   │   │   ├── RouteLogs.jsx
 │   │   │   ├── RoutesMgmt.jsx
 │   │   │   ├── EmployeesMgmt.jsx
+│   │   │   ├── Reports.jsx
 │   │   │   └── Admin.jsx
 │   │   ├── api.js
 │   │   └── App.jsx
 │   └── Dockerfile
-├── display-ui/             # React read-only display board
-│   ├── src/
-│   │   └── App.jsx
+├── display-ui/                 # Full display board (/display/)
+│   ├── src/App.jsx
 │   └── Dockerfile
-├── nginx/                  # Reverse proxy
+├── slim-display-ui/            # Slim display board (/slimdisplay/)
+│   ├── src/App.jsx
+│   └── Dockerfile
+├── nginx/                      # Reverse proxy
 │   ├── nginx.conf.template
 │   └── entrypoint.sh
-├── docs/                   # Documentation
+├── docs/
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -158,7 +188,6 @@ waste-kpi/
 The schema seeds 12 drivers and 8 routes on first run. To load additional test data:
 
 ```bash
-# Load full-year 2026 seed data (2,976 rows)
 docker exec -i waste-kpi-postgres psql -U waste_user -d waste_kpi < seed_2026.sql
 ```
 
@@ -171,6 +200,8 @@ git pull
 docker compose build --no-cache
 docker compose up -d
 ```
+
+Migrations run automatically — no manual database steps needed.
 
 ---
 

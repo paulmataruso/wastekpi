@@ -8,36 +8,24 @@ All endpoints are prefixed with `/api`. All endpoints except `POST /auth/login` 
 
 ### POST /api/auth/login
 
-Authenticate and receive a JWT token.
+**Body:** `{ "username", "password" }`
 
-**Request body:**
-```json
-{ "username": "admin", "password": "yourpassword" }
-```
-
-**Response:**
-```json
-{
-  "token": "eyJ...",
-  "username": "admin",
-  "role": "admin"
-}
-```
-
-**Error responses:** `400 Missing fields`, `401 Invalid credentials`
+**Response:** `{ "token", "username", "role" }`
 
 ---
 
 ## Employees
 
 ### GET /api/employees
-Returns all employees.
+Returns all employees. Admin users receive `driver_id`; regular users do not.
 
 ### POST /api/employees
-**Body:** `{ "name", "employee_number"?, "position"?, "active"? }`
+**Body:** `{ "name", "employee_number"?, "driver_id"?, "position"?, "active"? }`
+
+`driver_id` is only stored if the requester has the `admin` role.
 
 ### PUT /api/employees/:id
-**Body:** any subset of employee fields.
+Same fields as POST. `driver_id` is only updated by admins.
 
 ### DELETE /api/employees/:id
 
@@ -46,13 +34,13 @@ Returns all employees.
 ## Routes
 
 ### GET /api/routes
-Returns all routes.
+Returns active routes. Add `?all=true` to return all routes including excluded ones (used by the management page).
 
 ### POST /api/routes
-**Body:** `{ "route_name", "description"?, "area"?, "active"? }`
+**Body:** `{ "route_name", "description"?, "area"?, "active"?, "excluded"? }`
 
 ### PUT /api/routes/:id
-**Body:** any subset of route fields.
+**Body:** any subset including `excluded` boolean.
 
 ### DELETE /api/routes/:id
 
@@ -63,7 +51,7 @@ Returns all routes.
 One record per employee per calendar day.
 
 ### GET /api/route-logs?date=YYYY-MM-DD
-Returns all logs for the given date. Each log includes an attached `pack_outs` array and `route_area` from the joined routes table.
+Returns all logs for the given date with `pack_outs` array and `route_area` attached.
 
 **Response row shape:**
 ```json
@@ -77,10 +65,16 @@ Returns all logs for the given date. Each log includes an attached `pack_outs` a
   "punch_in": "06:00:00",
   "first_stop_time": "06:18:00",
   "route_complete_time": "14:32:00",
+  "to_yard_time": "14:38:00",
   "punch_out": "14:45:00",
   "notes": "Truck 4 check engine light",
   "pack_outs": [
-    { "id": 1, "seq": 1, "pack_out_time": "10:15:00", "back_on_route_time": "11:05:00" }
+    {
+      "id": 1, "seq": 1,
+      "pack_out_time": "10:15:00",
+      "back_on_route_time": "11:05:00",
+      "location": "Alva"
+    }
   ],
   "avg_route_mins_7d": "492.3"
 }
@@ -96,18 +90,17 @@ Returns all logs for the given date. Each log includes an attached `pack_outs` a
   "punch_in": "06:00",
   "first_stop_time": "06:18",
   "route_complete_time": "14:32",
+  "to_yard_time": "14:38",
   "punch_out": "14:45",
   "notes": "",
   "pack_outs": [
-    { "pack_out_time": "10:15", "back_on_route_time": "11:05" }
+    { "pack_out_time": "10:15", "back_on_route_time": "11:05", "location": "Alva" }
   ]
 }
 ```
 
-Pack-outs are managed in the same transaction — pass the full array on every create/update.
-
 ### PUT /api/route-logs/:id
-Same body shape as POST (minus `log_date`).
+Same body shape (minus `log_date`).
 
 ### DELETE /api/route-logs/:id
 
@@ -115,11 +108,14 @@ Same body shape as POST (minus `log_date`).
 
 ## Pack-Out Logs
 
-Standalone endpoints for pack-outs if needed outside of route log transactions.
+Standalone endpoints (pack-outs are usually managed via route-logs transactions).
 
 ### GET /api/pack-outs?route_log_id=:id
 ### POST /api/pack-outs
-**Body:** `{ "route_log_id", "seq", "pack_out_time"?, "back_on_route_time"? }`
+**Body:** `{ "route_log_id", "seq", "pack_out_time"?, "back_on_route_time"?, "location"? }`
+
+`location` must be one of: `Alva`, `Naughton`, `Casella`
+
 ### PUT /api/pack-outs/:id
 ### DELETE /api/pack-outs/:id
 
@@ -129,41 +125,9 @@ Standalone endpoints for pack-outs if needed outside of route log transactions.
 
 ### GET /api/dashboard/summary?date=YYYY-MM-DD
 
-**No auth required** (display board uses this endpoint unauthenticated).
+**No auth required.** Routes marked `excluded=true` are filtered from all stats and averages.
 
-Returns a single object:
-```json
-{
-  "stats": {
-    "routes_completed": 8,
-    "total_drivers": 12,
-    "punched_in": 10,
-    "punched_out": 3,
-    "avg_day_length_hours": "8.5",
-    "avg_route_duration_hours": "7.2"
-  },
-  "route_logs": [ ...full log rows with pack_outs and avg_route_mins_7d... ],
-  "week_routes": [ { "log_date": "2026-04-02", "routes_completed": 11 }, ... ],
-  "top_routes": {
-    "route_7d": "Route 6",
-    "avg_hours_7d": "8.3",
-    "runs_7d": "7",
-    "route_30d": "Route 6",
-    "avg_hours_30d": "8.1",
-    "runs_30d": "28"
-  },
-  "clock_avgs": {
-    "avg_clock_in_7d": "06:02 AM",
-    "avg_clock_out_7d": "02:48 PM",
-    "avg_clock_in_30d": "06:05 AM",
-    "avg_clock_out_30d": "02:51 PM"
-  },
-  "first_stop_avgs": {
-    "avg_to_first_stop_mins_7d": "18.2",
-    "avg_to_first_stop_mins_30d": "17.8"
-  }
-}
-```
+Returns: `{ date, stats, route_logs, week_routes, top_routes, clock_avgs, first_stop_avgs }`
 
 ---
 
@@ -171,50 +135,20 @@ Returns a single object:
 
 ### POST /api/import
 
-Bulk import route logs from a parsed CSV array. Upserts on `(employee_id, log_date)`.
-
-**Body:**
-```json
-{
-  "rows": [
-    {
-      "employee_name": "Justin",
-      "log_date": "2026-04-08",
-      "route_number": "Route 1",
-      "punch_in": "06:00",
-      "punch_out": "14:45",
-      "pack_out_1": "10:15",
-      "back_on_route_1": "11:05"
-    }
-  ]
-}
-```
-
-The import route resolves employee names to IDs automatically. Pack-out columns are auto-detected (`pack_out_N`, `back_on_route_N`).
+**Body:** `{ "rows": [...] }` — each row may include `to_yard`, `location_N` pack-out columns in addition to standard fields.
 
 ---
 
 ## Backup
 
 ### GET /api/backup
-
 Returns a JSON file download (all operational tables, no passwords).
 
-**Response:** JSON file with `Content-Disposition: attachment` header.
-
 ### POST /api/backup/restore
-
-Restores all data from a backup. Runs in a single transaction.
-
-**Body:** `{ "backup": { ...the parsed JSON backup object... } }`
-
-**Response:** `{ "success": true, "restored": { "employees": 12, "routes": 8, ... } }`
+**Body:** `{ "backup": { ...parsed JSON... } }`
 
 ### POST /api/backup/erase
-
-**Admin only.** Permanently deletes all route_logs, pack_out_logs, and clock_logs. Resets sequences.
-
-**Response:** `{ "success": true, "message": "All route log data erased" }`
+**Admin only.** Permanently deletes all route_logs, pack_out_logs, clock_logs.
 
 ---
 
@@ -223,31 +157,72 @@ Restores all data from a backup. Runs in a single transaction.
 All user endpoints are **admin only**.
 
 ### GET /api/users
-Returns all users (no password hashes).
-
 ### POST /api/users
 **Body:** `{ "username", "password", "role"? }` — role defaults to `"user"`.
-
 ### PUT /api/users/:id
-**Body:** any subset of `{ "username"?, "password"?, "role"? }`. Password is only updated if provided.
-
-**Guards:**
-- Cannot remove your own admin role
-- Cannot set role to anything other than `"admin"` or `"user"`
-
+**Body:** any subset of `{ "username"?, "password"?, "role"? }`.
 ### DELETE /api/users/:id
 
-**Guards:**
-- Cannot delete your own account
-- Cannot delete the last admin account
+---
+
+## Reports
+
+### GET /api/reports/friday-hours?week_of=YYYY-MM-DD
+
+Returns Mon–Thu hours per driver for the week containing the given date, sorted most-hours-first.
+
+Add `&format=csv` for a file download.
+
+**Response:**
+```json
+{
+  "week_of": "2026-04-19",
+  "monday": "2026-04-13",
+  "tuesday": "2026-04-14",
+  "wednesday": "2026-04-15",
+  "thursday": "2026-04-16",
+  "rows": [
+    {
+      "employee_name": "Justin",
+      "monday": "8h 12m",
+      "tuesday": "8h 45m",
+      "wednesday": "9h 02m",
+      "thursday": "8h 30m",
+      "total_hours": "34h 29m",
+      "total_mins": 2069,
+      "days_worked": 4
+    }
+  ]
+}
+```
+
+### POST /api/reports/custom
+
+**Body:**
+```json
+{
+  "columns": ["employee_name", "log_date", "route_number", "punch_in", "punch_out", "day_length"],
+  "date_from": "2026-04-01",
+  "date_to": "2026-04-30",
+  "driver_ids": [],
+  "route_numbers": [],
+  "status": "all",
+  "format": "json"
+}
+```
+
+`columns` — any subset of: `employee_name`, `log_date`, `route_number`, `route_area`, `punch_in`, `first_stop_time`, `route_complete_time`, `to_yard_time`, `punch_out`, `day_length`, `pack_out_count`, `notes`
+
+`status` — `"all"` | `"complete"` | `"incomplete"`
+
+`format` — `"json"` | `"csv"`
 
 ---
 
 ## Error Responses
 
-All errors return:
 ```json
-{ "error": "Human-readable error message" }
+{ "error": "Human-readable message" }
 ```
 
-Common HTTP status codes: `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`
+`400` Bad Request · `401` Unauthorized · `403` Forbidden · `404` Not Found · `409` Conflict · `500` Internal Server Error

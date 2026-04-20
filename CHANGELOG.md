@@ -5,6 +5,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] — 2026-04-19
+
+### Added
+
+#### Data Model
+- `to_yard_time` field on route logs — tracks when a driver departs for the yard at end of day
+- `location` field on pack-out logs — dump site selector: Alva, Naughton, or Casella
+- `excluded` boolean on routes — when enabled, route is hidden from all dashboard stats, display boards, and report averages (data entry still works normally)
+- `driver_id` field on employees — internal identifier for payroll/dispatch systems; admin-only, not exposed to regular users
+
+#### Auto-Migration System
+- `api/src/db/migrate.js` — migration runner that creates a `schema_migrations` tracking table and applies any pending numbered `.sql` files in order on every startup
+- `001_add_packout_table.sql`, `002_v1_1_new_columns.sql`, `003_add_driver_id.sql` — numbered migration files; no manual `docker exec` SQL needed ever again
+- Failed migrations abort startup with a clear error log rather than running a broken server
+
+#### Slim Display Board (`/slimdisplay/`)
+- New `slim-display-ui` container on port 3002
+- Shows only Next Up (Route Assignment Recommendation) and Driver Route KPI table
+- Same data source and 60-second refresh as the full display board
+- Subtitle: "ROUTE ASSIGNMENT BOARD"
+- Added to `docker-compose.yml` and nginx proxy config
+
+#### Reports Section
+- New **📊 Reports** nav item in the admin sidebar
+- **Friday Hours tab** — canned report showing Mon–Thu hours per driver for any selected week, sorted most hours first; medal emojis for top 3; zero-data drivers shown greyed at bottom; CSV export
+- **Report Builder tab** — flexible query tool with column selection (pill toggles), date range presets (Today/This Week/Last Week/Last 30/Last 90/Custom), driver multi-select, route multi-select, completion status filter; results render inline; CSV export with row count
+
+#### Route Exclusion
+- Routes management page now shows an **Included/Excluded** pill toggle per route — click to flip without opening the modal
+- Excluded routes: dimmed in the routes table, filtered from all dashboard API queries (stats, averages, trends, top routes), filtered from display board stats
+- Excluded routes still appear in data entry dropdowns (exclusion affects analytics only)
+
+#### Driver ID (Admin-only)
+- `driver_id` field in employee create/edit modal with "Admin only" badge
+- Admin-role users see a Driver ID column in the employees table
+- API enforces role — non-admins cannot read or write `driver_id`
+
+### Changed
+- `nginx/entrypoint.sh` switched from `envsubst` to `sed` for REAL_HOST injection — prevents `envsubst` from inadvertently stripping nginx's own `$variables`
+- `nginx/nginx.conf.template` uses `$real_scheme` (derived from `X-Forwarded-Proto` header) for redirects — fixes redirect loops when behind an HTTPS-terminating upstream proxy
+- `api/src/index.js` — startup sequence is now `runMigrations → seedAdmin → listen`; server does not start if a migration fails
+- Routes API `GET /api/routes` accepts `?all=true` to return all routes including excluded ones (used by the management page); default returns active-only (used by data entry)
+- Pack-out popover in inline editor expanded to 3 columns: Pack Out time | Back On Route time | Location
+
+### Fixed
+- Route entry dropdowns no longer filter out excluded routes — exclusion is analytics-only
+
+---
+
 ## [1.0.0] — 2026-04-12
 
 ### Initial release
@@ -23,31 +72,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 #### Display Board
 - Read-only TV dashboard — no login required
 - Live clock with full date display, auto-refreshes every 60 seconds
-- **Stat tiles row:** Routes Complete, In Progress, Punched In, Longest Avg Route (7d/30d), Avg Day Length, Avg Route Time
-- **Avg Clock Times card** — fleet-wide average clock-in and clock-out over 7 and 30 days
-- **Avg Punch In → 1st Stop card** — measures dispatch efficiency over 7 and 30 days
-- **Route Assignment Recommendation (Next Up)** — 25% left panel ranking available drivers by least time on clock; primary pick highlighted in amber with pulse indicator
-- **Driver Route KPI table** — 75% right panel, all drivers logged today sorted fastest → slowest by 7-day average route time; columns: rank, driver, route+area badge, punch in, 1st stop, route done, punch out, day length, 7d avg, status
-- Always-visible amber notes bar beneath each driver row when a note exists
-- Route area badges (blue pill) on all route displays
+- Stat tiles row, Avg Clock Times card, Avg Punch In → 1st Stop card
+- Route Assignment Recommendation (Next Up) — 25% left panel
+- Driver Route KPI table — 75% right panel, sorted fastest → slowest by 7d avg
+- Always-visible amber notes bar beneath each driver row
 
 #### Admin Settings (admin role only)
-- **Backup & Restore tab:**
-  - Download full JSON snapshot of all operational data (no passwords)
-  - Restore from backup with record count preview before committing
-  - Erase All Data — three-step double confirmation with typed "ERASE" verification
-- **Users tab:**
-  - Create, edit, and delete user accounts
-  - Roles: Admin (full access) and User (operational data entry only)
-  - Cannot delete own account or last admin; cannot remove own admin role
+- Backup & Restore tab — JSON snapshot download, restore with preview, Erase All Data (double-confirm)
+- Users tab — create/edit/delete accounts, Admin and User roles, safety guards
 
 #### API & Infrastructure
-- JWT authentication — 24-hour tokens, role embedded in payload
-- Role-based access control — admin-only guards on user management, backup/erase endpoints
-- Display dashboard summary endpoint is auth-exempt (display board read access)
+- JWT authentication, role-based access control
 - Fully Dockerized — five containers: nginx, api, admin-ui, display-ui, postgres
 - PostgreSQL 16 with named volume persistence
-- Nginx reverse proxy with `REAL_HOST` envsubst support for upstream proxy compatibility
-- Gzip compression on the proxy; long-term asset caching (`immutable`) on compiled static builds
-- JSON backup strategy — portable across PostgreSQL versions, no pg_dump dependency
-- Schema auto-initializes on first run with 12 seeded drivers and 8 seeded routes
+- Nginx reverse proxy with REAL_HOST support
+- Auto-initializes with 12 seeded drivers and 8 seeded routes

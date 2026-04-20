@@ -10,9 +10,9 @@
 
 ## Local Development Setup
 
-The easiest approach is to run only PostgreSQL in Docker while running the API and frontend apps directly with Node.js for hot-reloading.
+Run only PostgreSQL in Docker; run the API and frontend apps directly for hot-reloading.
 
-### 1. Start the database only
+### 1. Start the database
 
 ```bash
 docker compose up -d postgres
@@ -25,7 +25,7 @@ cd api
 npm install
 ```
 
-Create a `.env` in the `api/` folder (or export these):
+Create `api/.env`:
 ```bash
 DATABASE_URL=postgresql://waste_user:changeme_db_password@localhost:5432/waste_kpi
 JWT_SECRET=dev_secret_at_least_32_chars_long_here
@@ -35,30 +35,24 @@ NODE_ENV=development
 ```
 
 ```bash
-npm run dev     # starts with nodemon, auto-reloads on file changes
+npm run dev   # nodemon, auto-reloads
 ```
 
-API runs at `http://localhost:4000`.
+Migrations run on startup — `schema_migrations` table is created automatically.
 
 ### 3. Admin UI
 
 ```bash
-cd admin-ui
-npm install
-npm run dev     # Vite dev server with HMR
+cd admin-ui && npm install && npm run dev
 ```
+Runs at `http://localhost:5173`. Vite proxies `/api` to `localhost:4000`.
 
-Admin UI runs at `http://localhost:5173`. Vite proxies `/api` requests to `localhost:4000` — check `vite.config.js` for the proxy config.
-
-### 4. Display UI
+### 4. Display UIs
 
 ```bash
-cd display-ui
-npm install
-npm run dev
+cd display-ui && npm install && npm run dev       # http://localhost:5174
+cd slim-display-ui && npm install && npm run dev  # http://localhost:5175
 ```
-
-Display UI runs at `http://localhost:5174`.
 
 ---
 
@@ -68,123 +62,88 @@ Display UI runs at `http://localhost:5174`.
 waste-kpi/
 ├── api/src/
 │   ├── db/
-│   │   ├── schema.sql              # DDL + seed data, auto-run on first postgres start
-│   │   └── migration_packout.sql   # One-time migration for pack-out table
+│   │   ├── schema.sql              # DDL + seed data (auto-run on first postgres start)
+│   │   ├── migrate.js              # Migration runner — runs on every API startup
+│   │   ├── 001_add_packout_table.sql
+│   │   ├── 002_v1_1_new_columns.sql
+│   │   └── 003_add_driver_id.sql
 │   ├── middleware/
 │   │   └── auth.js                 # JWT verification; whitelists display dashboard
 │   ├── routes/
 │   │   ├── auth.js                 # POST /api/auth/login
-│   │   ├── employees.js            # CRUD /api/employees
-│   │   ├── routes.js               # CRUD /api/routes
-│   │   ├── routeLogs.js            # CRUD /api/route-logs (with pack_outs join)
-│   │   ├── packOuts.js             # CRUD /api/pack-outs
+│   │   ├── employees.js            # CRUD — driver_id filtered by role
+│   │   ├── routes.js               # CRUD — ?all=true for management page
+│   │   ├── routeLogs.js            # CRUD with pack_outs transaction + to_yard_time
+│   │   ├── packOuts.js             # CRUD with location field
 │   │   ├── clockLogs.js            # CRUD /api/clock-logs
-│   │   ├── dashboard.js            # GET /api/dashboard/summary
-│   │   ├── import.js               # POST /api/import (bulk CSV row insert)
-│   │   ├── backup.js               # GET /backup, POST /backup/restore, POST /backup/erase
-│   │   └── users.js                # CRUD /api/users (admin only)
-│   └── index.js                    # Express app setup, route registration
+│   │   ├── dashboard.js            # GET /api/dashboard/summary (excluded route filter)
+│   │   ├── import.js               # POST /api/import (to_yard + location columns)
+│   │   ├── backup.js               # GET/POST backup, restore, erase
+│   │   ├── users.js                # CRUD /api/users (admin only)
+│   │   └── reports.js              # GET friday-hours, POST custom
+│   └── index.js                    # runMigrations → seedAdmin → listen
 │
 ├── admin-ui/src/
 │   ├── components/
-│   │   ├── Layout.jsx              # Sidebar nav + main content wrapper
-│   │   ├── Modal.jsx               # Reusable modal dialog
-│   │   ├── Toast.jsx               # Notification toasts (success/error)
-│   │   ├── DateNav.jsx             # ← date → navigation widget
-│   │   ├── TimePicker.jsx          # Custom hour/minute/AM-PM dropdown picker
-│   │   ├── ExportModal.jsx         # CSV export with dynamic pack-out columns
-│   │   └── ImportModal.jsx         # CSV import with preview
+│   │   ├── Layout.jsx              # Sidebar: Dashboard, Route Logs, Routes, Employees, Reports, Admin Settings
+│   │   ├── Modal.jsx
+│   │   ├── Toast.jsx
+│   │   ├── DateNav.jsx
+│   │   ├── TimePicker.jsx          # Custom hour/minute/AMPM dropdown picker
+│   │   ├── ExportModal.jsx
+│   │   └── ImportModal.jsx
 │   ├── pages/
-│   │   ├── Login.jsx               # Login form
-│   │   ├── Dashboard.jsx           # Summary stats + charts
-│   │   ├── RouteLogs.jsx           # Main data entry page (Form + Inline modes)
-│   │   ├── RoutesMgmt.jsx          # Routes CRUD
-│   │   ├── EmployeesMgmt.jsx       # Employees CRUD
-│   │   └── Admin.jsx               # Combined admin: Backup/Restore + Users tabs
-│   ├── api.js                      # Fetch wrapper + all API calls
-│   └── App.jsx                     # React Router setup
+│   │   ├── Login.jsx
+│   │   ├── Dashboard.jsx
+│   │   ├── RouteLogs.jsx           # Form + Inline modes; to_yard_time; pack-out location
+│   │   ├── RoutesMgmt.jsx          # Excluded toggle (pill + modal checkbox)
+│   │   ├── EmployeesMgmt.jsx       # Driver ID field (admin-only)
+│   │   ├── Reports.jsx             # Friday Hours tab + Report Builder tab
+│   │   └── Admin.jsx               # Backup/Restore/Erase + Users tabs
+│   ├── api.js                      # Includes routes.listAll(), reports.*
+│   └── App.jsx
 │
-├── display-ui/src/
-│   └── App.jsx                     # Single-file display board (all components inline)
+├── display-ui/src/App.jsx          # Full display board
+├── slim-display-ui/src/App.jsx     # Slim board — NextUpCard + DriverTable only
 │
 ├── nginx/
-│   ├── nginx.conf.template         # envsubst template — REAL_HOST injected at startup
-│   └── entrypoint.sh               # Runs envsubst, then nginx
+│   ├── nginx.conf.template         # sed placeholder REAL_HOST_VALUE; $real_scheme for redirects
+│   └── entrypoint.sh               # sed replace + nginx -t + nginx -g 'daemon off;'
 │
-├── docs/                           # Documentation
-├── docker-compose.yml
-├── .env.example
-└── README.md
+├── docs/
+├── docker-compose.yml              # 6 services: nginx, api, admin-ui, display-ui, slim-display-ui, postgres
+└── .env.example
 ```
 
 ---
 
 ## Key Design Decisions
 
-### Pack-outs in route log transactions
+### Migration runner
+`migrate.js` uses a fresh pg client per migration to avoid transaction state leaking between files. The server exits (code 1) if any migration fails — a broken schema never results in a silently broken running server.
 
-Pack-outs are created/updated/deleted as part of the parent route log save. The API accepts a `pack_outs: []` array on `POST /route-logs` and `PUT /route-logs/:id` and handles them in a single transaction — it deletes all existing pack-outs for the log then inserts the new set. This simplifies client logic (no separate pack-out API calls needed).
+### Excluded routes
+The `excluded` flag on routes is enforced in the dashboard API using a correlated `NOT EXISTS` subquery. This means: data entry is never affected, the daily log still shows all drivers, but all averages/stats/trends skip excluded route entries. The dashboard returns `route_excluded` per row so the display board could render excluded rows differently if needed.
 
-### Display board auth bypass
+### Driver ID access control
+The `employees.js` route builds its `SELECT` column list and `SET` clause dynamically based on `req.user.role`. Non-admins cannot read or write `driver_id` even if they craft a direct API request.
 
-`GET /api/dashboard/summary` is exempted from JWT auth in `middleware/auth.js`. This lets the display board load without credentials while keeping all other endpoints protected.
+### Nginx REAL_HOST injection
+Uses `sed` with a unique literal placeholder instead of `envsubst` because `envsubst` without a strict variable list replaces ALL `$VAR` patterns, destroying nginx's own `$host`, `$scheme`, `$remote_addr` etc. The `nginx -t` test before start catches any config errors immediately.
 
-### `REAL_HOST` envsubst pattern
-
-The nginx config is a `.template` file processed by `envsubst` at container startup (see `nginx/entrypoint.sh`). This allows the `REAL_HOST` value to be injected without rebuilding the nginx image.
-
-### JSON backup strategy
-
-Backup/restore is implemented as application-level JSON (querying tables via the API and re-inserting) rather than using `pg_dump`. This avoids needing `pg_dump` installed in the API container and makes backups portable across PostgreSQL versions.
-
----
-
-## Building for Production
-
-```bash
-# Build all images
-docker compose build --no-cache
-
-# Start
-docker compose up -d
-
-# Check logs
-docker compose logs -f
-```
+### Reports API
+Friday Hours: queries Mon–Thu in one LEFT JOIN sweep, pivots in Node.js rather than SQL for simplicity. Custom report: builds a parameterized WHERE clause dynamically; column selection happens in Node.js post-query to keep the SQL simple. Both support `?format=csv` / `"format": "csv"` for direct file download.
 
 ---
+
+## Adding a New Migration
+
+1. Create `api/src/db/004_your_description.sql`
+2. Write idempotent SQL (`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, etc.)
+3. Deploy — the runner applies it automatically on next startup
 
 ## Adding a New API Route
 
-1. Create `api/src/routes/yourroute.js` — export a function `(pool) => router`
-2. Register in `api/src/index.js`:
-   ```js
-   app.use('/api/yourroute', require('./middleware/auth'), require('./routes/yourroute')(pool));
-   ```
-3. Add to `admin-ui/src/api.js` under the appropriate key
-
----
-
-## Environment Variables Reference
-
-| Variable | Required | Description |
-|---|---|---|
-| `POSTGRES_DB` | Yes | PostgreSQL database name |
-| `POSTGRES_USER` | Yes | PostgreSQL username |
-| `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
-| `DATABASE_URL` | Yes (API) | Full postgres connection string |
-| `JWT_SECRET` | Yes | JWT signing secret (min 32 chars) |
-| `ADMIN_USERNAME` | No | Seeds initial admin on first run |
-| `ADMIN_PASSWORD` | No | Seeds initial admin on first run |
-| `NODE_ENV` | No | `production` or `development` |
-| `REAL_HOST` | Yes | External hostname for nginx redirects |
-
----
-
-## Running Tests
-
-No automated tests are included in v1.0. Suggested additions for future versions:
-
-- API integration tests with Jest + supertest
-- Component tests with React Testing Library
-- E2E tests with Playwright
+1. Create `api/src/routes/yourroute.js` exporting `(pool) => router`
+2. Register in `api/src/index.js`: `app.use('/api/yourroute', require('./middleware/auth'), require('./routes/yourroute')(pool));`
+3. Add to `admin-ui/src/api.js`
