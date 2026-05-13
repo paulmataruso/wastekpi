@@ -66,6 +66,12 @@ export const api = {
     delete: (id)     => req(`/route-logs/${id}`, { method: 'DELETE' })
   },
 
+  packOutLocations: {
+    list:   ()    => req('/pack-out-locations'),
+    create: (name) => req('/pack-out-locations', { method: 'POST', body: JSON.stringify({ name }) }),
+    delete: (id)  => req(`/pack-out-locations/${id}`, { method: 'DELETE' }),
+  },
+
   dashboard: {
     summary: (date) => req(`/dashboard/summary?date=${date}`)
   },

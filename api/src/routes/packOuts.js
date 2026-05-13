@@ -3,7 +3,15 @@ const express = require('express');
 module.exports = (pool) => {
   const router = express.Router();
 
-  const VALID_LOCATIONS = ['Alva', 'Naughton', 'Casella'];
+  // Validate location against the DB table rather than a hardcoded list
+  async function validLocation(name) {
+    if (!name) return null;
+    const result = await pool.query(
+      'SELECT name FROM pack_out_locations WHERE name = $1 AND active = TRUE',
+      [name]
+    );
+    return result.rows.length > 0 ? name : null;
+  }
 
   router.get('/', async (req, res) => {
     const { route_log_id } = req.query;
@@ -20,8 +28,8 @@ module.exports = (pool) => {
   router.post('/', async (req, res) => {
     const { route_log_id, seq, pack_out_time, back_on_route_time, location } = req.body;
     if (!route_log_id) return res.status(400).json({ error: 'route_log_id required' });
-    const loc = VALID_LOCATIONS.includes(location) ? location : null;
     try {
+      const loc = await validLocation(location);
       const result = await pool.query(
         `INSERT INTO pack_out_logs (route_log_id, seq, pack_out_time, back_on_route_time, location)
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -33,8 +41,8 @@ module.exports = (pool) => {
 
   router.put('/:id', async (req, res) => {
     const { pack_out_time, back_on_route_time, location } = req.body;
-    const loc = VALID_LOCATIONS.includes(location) ? location : null;
     try {
+      const loc = await validLocation(location);
       const result = await pool.query(
         `UPDATE pack_out_logs SET pack_out_time=$1, back_on_route_time=$2, location=$3
          WHERE id=$4 RETURNING *`,
