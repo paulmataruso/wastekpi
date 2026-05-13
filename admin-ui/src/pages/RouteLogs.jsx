@@ -25,7 +25,7 @@ function dayLen(punchIn, punchOut) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-function RouteCell({ routeNumber, routeArea }) {
+function RouteCell({ routeNumber, routeArea, additionalRoutes }) {
   if (!routeNumber) return <span style={{ color: 'var(--text3)' }}>—</span>;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
@@ -37,11 +37,17 @@ function RouteCell({ routeNumber, routeArea }) {
           {routeArea.trim()}
         </span>
       )}
+      {additionalRoutes?.map((ar, i) => (
+        <span key={i} style={{ fontFamily: 'var(--mono)', fontSize: 11, background: 'rgba(245,158,11,0.10)', color: 'var(--amber)', border: '1px solid rgba(245,158,11,0.25)', padding: '1px 7px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+          +{ar.route_number}
+        </span>
+      ))}
     </div>
   );
 }
 
 const emptyPackOut = () => ({ pack_out_time: '', back_on_route_time: '', location: '' });
+const emptyAdditionalRoute = () => ({ route_number: '', first_stop_time: '', route_complete_time: '', notes: '' });
 
 const emptyForm = {
   employee_id: '',
@@ -52,7 +58,8 @@ const emptyForm = {
   to_yard_time: '',
   punch_out: '',
   notes: '',
-  pack_outs: []
+  pack_outs: [],
+  additional_routes: [],
 };
 
 function rowToForm(log) {
@@ -69,7 +76,13 @@ function rowToForm(log) {
       pack_out_time: p.pack_out_time ? p.pack_out_time.slice(0, 5) : '',
       back_on_route_time: p.back_on_route_time ? p.back_on_route_time.slice(0, 5) : '',
       location: p.location || '',
-    }))
+    })),
+    additional_routes: (log.additional_routes || []).map(ar => ({
+      route_number: ar.route_number || '',
+      first_stop_time: ar.first_stop_time ? ar.first_stop_time.slice(0, 5) : '',
+      route_complete_time: ar.route_complete_time ? ar.route_complete_time.slice(0, 5) : '',
+      notes: ar.notes || '',
+    })),
   };
 }
 
@@ -78,20 +91,74 @@ const cellSelectStyle = {
   borderRadius: 4, color: 'var(--text)', fontFamily: 'inherit', fontSize: 13,
   padding: '3px 6px', outline: 'none', minWidth: 110, cursor: 'pointer',
 };
-
 const cellInputStyle = {
   width: '100%', background: 'var(--bg)', border: '1px solid var(--accent)',
   borderRadius: 4, color: 'var(--text)', fontFamily: 'inherit', fontSize: 12,
   padding: '3px 6px', outline: 'none', minWidth: 90,
 };
 
+// ─── Additional Routes Card (used in modal only) ──────────────────────────────
+
+function AdditionalRoutesCard({ additionalRoutes, routes, onChange }) {
+  function add() { onChange([...additionalRoutes, emptyAdditionalRoute()]); }
+  function remove(idx) { onChange(additionalRoutes.filter((_, i) => i !== idx)); }
+  function update(idx, field, val) {
+    const next = [...additionalRoutes];
+    next[idx] = { ...next[idx], [field]: val };
+    onChange(next);
+  }
+
+  return (
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Additional Routes</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Driver helped with or was assigned to additional routes</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={add}>+ Add Route</button>
+      </div>
+      {additionalRoutes.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '8px 0' }}>No additional routes</div>
+      )}
+      {additionalRoutes.map((ar, idx) => (
+        <div key={idx} style={{ padding: '10px 12px', background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid rgba(245,158,11,0.2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)' }}>Additional Route #{idx + 1}</span>
+            <button className="btn-icon" type="button" onClick={() => remove(idx)} style={{ fontSize: 14, color: 'var(--danger)', opacity: 0.7 }}>×</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 8 }}>
+            <div className="form-group">
+              <label>Route</label>
+              <select value={ar.route_number} onChange={e => update(idx, 'route_number', e.target.value)}>
+                <option value="">Select route…</option>
+                {routes.map(r => <option key={r.id} value={r.route_name}>{r.route_name}{r.area ? ` — ${r.area}` : ''}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>1st Stop</label>
+              <input type="time" value={ar.first_stop_time} onChange={e => update(idx, 'first_stop_time', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>Route Complete</label>
+              <input type="time" value={ar.route_complete_time} onChange={e => update(idx, 'route_complete_time', e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Notes</label>
+            <input type="text" value={ar.notes} onChange={e => update(idx, 'notes', e.target.value)} placeholder="Optional notes…" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Pack-out popover ─────────────────────────────────────────────────────────
+
 function PackOutPopover({ packOuts, onChange, onClose }) {
   const ref = useRef(null);
-
   useEffect(() => {
-    function handle(e) {
-      if (ref.current && !ref.current.contains(e.target)) onClose();
-    }
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, [onClose]);
@@ -99,42 +166,23 @@ function PackOutPopover({ packOuts, onChange, onClose }) {
   const add = () => onChange([...packOuts, emptyPackOut()]);
   const remove = (i) => onChange(packOuts.filter((_, idx) => idx !== i));
   const update = (i, field, val) => {
-    const next = [...packOuts];
-    next[i] = { ...next[i], [field]: val };
-    onChange(next);
+    const next = [...packOuts]; next[i] = { ...next[i], [field]: val }; onChange(next);
   };
 
   return (
-    <div ref={ref} style={{
-      position: 'absolute', zIndex: 300, top: '100%', left: 0,
-      background: 'var(--bg2)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)', padding: 14, minWidth: 380,
-      boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-    }}>
+    <div ref={ref} style={{ position: 'absolute', zIndex: 300, top: '100%', left: 0, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, minWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pack Out Events</span>
         <button className="btn btn-ghost btn-sm" onClick={add}>+ Add</button>
       </div>
-      {packOuts.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '8px 0' }}>No pack-out events</div>
-      )}
+      {packOuts.length === 0 && <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '8px 0' }}>No pack-out events</div>}
       {packOuts.map((po, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Pack Out</div>
-            <TimePicker value={po.pack_out_time} onChange={val => update(i, 'pack_out_time', val)} />
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Back On Route</div>
-            <TimePicker value={po.back_on_route_time} onChange={val => update(i, 'back_on_route_time', val)} />
-          </div>
+          <div><div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Pack Out</div><TimePicker value={po.pack_out_time} onChange={val => update(i, 'pack_out_time', val)} /></div>
+          <div><div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Back On Route</div><TimePicker value={po.back_on_route_time} onChange={val => update(i, 'back_on_route_time', val)} /></div>
           <div>
             <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Location</div>
-            <select
-              value={po.location || ''}
-              onChange={e => update(i, 'location', e.target.value)}
-              style={{ ...cellSelectStyle, minWidth: 0, fontSize: 12 }}
-            >
+            <select value={po.location || ''} onChange={e => update(i, 'location', e.target.value)} style={{ ...cellSelectStyle, minWidth: 0, fontSize: 12 }}>
               <option value="">—</option>
               {PACKOUT_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
@@ -149,26 +197,21 @@ function PackOutPopover({ packOuts, onChange, onClose }) {
   );
 }
 
+// ─── Inline edit row ──────────────────────────────────────────────────────────
+
 function InlineEditRow({ data, employees, routes, onSave, onCancel, isSaving }) {
   const [form, setForm] = useState(data);
   const [showPackOuts, setShowPackOuts] = useState(false);
-
   const dl = dayLen(form.punch_in, form.punch_out);
   const poCount = (form.pack_outs || []).filter(p => p.pack_out_time || p.back_on_route_time).length;
-
-  function setField(field, value) { setForm(p => ({ ...p, [field]: value })); }
-
-  function handleKeyDown(e) {
-    if (e.key === 'Enter') onSave(form);
-    if (e.key === 'Escape') onCancel();
-  }
+  const arCount = (form.additional_routes || []).filter(ar => ar.route_number).length;
+  function setField(f, v) { setForm(p => ({ ...p, [f]: v })); }
+  function handleKeyDown(e) { if (e.key === 'Enter') onSave(form); if (e.key === 'Escape') onCancel(); }
 
   return (
     <tr style={{ background: 'rgba(255,255,255,0.02)', outline: '1px solid var(--accent)', outlineOffset: -1 }}>
       <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
-        <span style={{ fontWeight: 500, fontSize: 13 }}>
-          {employees.find(e => String(e.id) === String(form.employee_id))?.name || '—'}
-        </span>
+        <span style={{ fontWeight: 500, fontSize: 13 }}>{employees.find(e => String(e.id) === String(form.employee_id))?.name || '—'}</span>
       </td>
       <td style={{ padding: '6px 10px' }}>
         <select value={form.route_number} onChange={e => setField('route_number', e.target.value)} style={cellSelectStyle} onKeyDown={handleKeyDown}>
@@ -185,12 +228,15 @@ function InlineEditRow({ data, employees, routes, onSave, onCancel, isSaving }) 
         {dl ? <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{dl}</span> : <span style={{ color: 'var(--text3)' }}>—</span>}
       </td>
       <td style={{ padding: '6px 10px', position: 'relative' }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowPackOuts(v => !v)} style={{ fontSize: 11, padding: '2px 8px' }}>
-          {poCount > 0 ? <span style={{ color: 'var(--amber)' }}>{poCount}× dumps</span> : '+ Dumps'}
-        </button>
-        {showPackOuts && (
-          <PackOutPopover packOuts={form.pack_outs || []} onChange={po => setField('pack_outs', po)} onClose={() => setShowPackOuts(false)} />
-        )}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowPackOuts(v => !v)} style={{ fontSize: 11, padding: '2px 8px' }}>
+            {poCount > 0 ? <span style={{ color: 'var(--amber)' }}>{poCount}× dumps</span> : '+ Dumps'}
+          </button>
+          {arCount > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--amber)', padding: '2px 8px', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 4 }}>+{arCount} route{arCount > 1 ? 's' : ''}</span>
+          )}
+        </div>
+        {showPackOuts && <PackOutPopover packOuts={form.pack_outs || []} onChange={po => setField('pack_outs', po)} onClose={() => setShowPackOuts(false)} />}
       </td>
       <td style={{ padding: '6px 10px' }}>
         <input type="text" value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes…" style={{ ...cellInputStyle, minWidth: 120 }} onKeyDown={handleKeyDown} />
@@ -205,16 +251,19 @@ function InlineEditRow({ data, employees, routes, onSave, onCancel, isSaving }) 
   );
 }
 
+// ─── Inline read row ──────────────────────────────────────────────────────────
+
 function InlineReadRow({ log, onEdit, onDelete }) {
   const dl = dayLen(log.punch_in, log.punch_out);
   const complete = !!log.punch_out;
-  const started = !!log.punch_in;
-  const poCount = (log.pack_outs || []).length;
+  const started  = !!log.punch_in;
+  const poCount  = (log.pack_outs || []).length;
+  const arCount  = (log.additional_routes || []).filter(ar => ar.route_number).length;
 
   return (
     <tr onClick={() => onEdit(log)} style={{ cursor: 'pointer' }} title="Click row to edit inline">
       <td style={{ fontWeight: 500, whiteSpace: 'nowrap', padding: '8px 10px' }}>{log.employee_name}</td>
-      <td style={{ padding: '8px 10px' }}><RouteCell routeNumber={log.route_number} routeArea={log.route_area} /></td>
+      <td style={{ padding: '8px 10px' }}><RouteCell routeNumber={log.route_number} routeArea={log.route_area} additionalRoutes={log.additional_routes} /></td>
       <td style={{ fontFamily: 'var(--mono)', fontSize: 12, padding: '8px 10px' }}>{fmt(log.punch_in)}</td>
       <td style={{ fontFamily: 'var(--mono)', fontSize: 12, padding: '8px 10px' }}>{fmt(log.first_stop_time)}</td>
       <td style={{ fontFamily: 'var(--mono)', fontSize: 12, padding: '8px 10px' }}>{fmt(log.route_complete_time)}</td>
@@ -224,18 +273,16 @@ function InlineReadRow({ log, onEdit, onDelete }) {
         {dl ? <span style={{ fontWeight: 500, color: 'var(--accent)' }}>{dl}</span> : <span style={{ color: 'var(--text3)' }}>—</span>}
       </td>
       <td style={{ padding: '8px 10px' }}>
-        {poCount > 0
-          ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, background: 'var(--bg3)', padding: '2px 8px', borderRadius: 4, color: 'var(--amber)' }}>{poCount}×</span>
-          : <span style={{ color: 'var(--text3)' }}>—</span>}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {poCount > 0 && <span style={{ fontFamily: 'var(--mono)', fontSize: 12, background: 'var(--bg3)', padding: '2px 8px', borderRadius: 4, color: 'var(--amber)' }}>{poCount}× dumps</span>}
+          {arCount > 0 && <span style={{ fontSize: 11, color: 'var(--amber)', padding: '2px 7px', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 4 }}>+{arCount} route{arCount > 1 ? 's' : ''}</span>}
+          {poCount === 0 && arCount === 0 && <span style={{ color: 'var(--text3)' }}>—</span>}
+        </div>
       </td>
       <td style={{ padding: '8px 10px' }}>
-        {complete ? <span className="tag tag-green">Complete</span>
-          : started ? <span className="tag tag-blue">In Progress</span>
-          : <span className="tag tag-gray">Pending</span>}
+        {complete ? <span className="tag tag-green">Complete</span> : started ? <span className="tag tag-blue">In Progress</span> : <span className="tag tag-gray">Pending</span>}
       </td>
-      <td style={{ color: 'var(--text3)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '8px 10px' }}>
-        {log.notes || '—'}
-      </td>
+      <td style={{ color: 'var(--text3)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '8px 10px' }}>{log.notes || '—'}</td>
       <td style={{ padding: '8px 10px' }} onClick={e => e.stopPropagation()}>
         <button className="btn-icon" title="Delete" onClick={() => onDelete(log.id)}>🗑</button>
       </td>
@@ -243,26 +290,18 @@ function InlineReadRow({ log, onEdit, onDelete }) {
   );
 }
 
+// ─── Inline new row ───────────────────────────────────────────────────────────
+
 function InlineNewRow({ employees, routes, loggedEmployeeIds, onSave, isSaving }) {
-  const blank = { ...emptyForm, pack_outs: [] };
+  const blank = { ...emptyForm };
   const [form, setForm] = useState(blank);
   const [showPackOuts, setShowPackOuts] = useState(false);
-
   const dl = dayLen(form.punch_in, form.punch_out);
   const poCount = (form.pack_outs || []).filter(p => p.pack_out_time || p.back_on_route_time).length;
   const availableEmployees = employees.filter(e => !loggedEmployeeIds.has(e.id));
-
-  function setField(field, value) { setForm(p => ({ ...p, [field]: value })); }
-
-  function handleSave() {
-    if (!form.employee_id) return;
-    onSave(form, () => setForm(blank));
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === 'Enter') handleSave();
-    if (e.key === 'Escape') setForm(blank);
-  }
+  function setField(f, v) { setForm(p => ({ ...p, [f]: v })); }
+  function handleSave() { if (!form.employee_id) return; onSave(form, () => setForm(blank)); }
+  function handleKeyDown(e) { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setForm(blank); }
 
   return (
     <tr style={{ background: 'rgba(74,222,128,0.06)', borderBottom: '2px solid var(--accent)' }}>
@@ -290,9 +329,7 @@ function InlineNewRow({ employees, routes, loggedEmployeeIds, onSave, isSaving }
         <button className="btn btn-ghost btn-sm" onClick={() => setShowPackOuts(v => !v)} style={{ fontSize: 11, padding: '2px 8px' }}>
           {poCount > 0 ? <span style={{ color: 'var(--amber)' }}>{poCount}× dumps</span> : '+ Dumps'}
         </button>
-        {showPackOuts && (
-          <PackOutPopover packOuts={form.pack_outs || []} onChange={po => setField('pack_outs', po)} onClose={() => setShowPackOuts(false)} />
-        )}
+        {showPackOuts && <PackOutPopover packOuts={form.pack_outs || []} onChange={po => setField('pack_outs', po)} onClose={() => setShowPackOuts(false)} />}
       </td>
       <td style={{ padding: '6px 10px' }}>
         <input type="text" value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes…" style={{ ...cellInputStyle, minWidth: 120 }} onKeyDown={handleKeyDown} />
@@ -306,25 +343,26 @@ function InlineNewRow({ employees, routes, loggedEmployeeIds, onSave, isSaving }
   );
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function RouteLogs() {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [logs, setLogs] = useState([]);
+  const [date, setDate]           = useState(new Date().toISOString().split('T')[0]);
+  const [logs, setLogs]           = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [routes, setRoutes]       = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [entryMode, setEntryMode] = useState('form');
-  const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(emptyForm);
+  const [modal, setModal]         = useState(null);
+  const [form, setForm]           = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
-  const [savingId, setSavingId] = useState(null);
+  const [savingId, setSavingId]   = useState(null);
   const [savingNew, setSavingNew] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [toast, setToast]         = useState(null);
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     api.employees.list().then(r => setEmployees(r.filter(e => e.active)));
-    // data entry shows all active routes — excluded only affects analytics/reports, not data entry
     api.routes.list().then(r => setRoutes(r.filter(r => r.active)));
   }, []);
 
@@ -337,7 +375,7 @@ export default function RouteLogs() {
     finally { setLoading(false); }
   }
 
-  function openAdd() { setForm({ ...emptyForm, pack_outs: [] }); setModal('add'); }
+  function openAdd() { setForm({ ...emptyForm }); setModal('add'); }
   function openEdit(log) { setForm(rowToForm(log)); setModal(log); }
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
@@ -350,9 +388,10 @@ export default function RouteLogs() {
   async function saveModal() {
     if (!form.employee_id) { setToast({ msg: 'Please select a driver', type: 'error' }); return; }
     const cleanPackOuts = (form.pack_outs || []).filter(p => p.pack_out_time || p.back_on_route_time);
+    const cleanAdditional = (form.additional_routes || []).filter(ar => ar.route_number);
     try {
-      if (modal === 'add') await api.routeLogs.create({ ...form, log_date: date, pack_outs: cleanPackOuts });
-      else await api.routeLogs.update(modal.id, { ...form, pack_outs: cleanPackOuts });
+      if (modal === 'add') await api.routeLogs.create({ ...form, log_date: date, pack_outs: cleanPackOuts, additional_routes: cleanAdditional });
+      else await api.routeLogs.update(modal.id, { ...form, pack_outs: cleanPackOuts, additional_routes: cleanAdditional });
       setToast({ msg: 'Saved successfully', type: 'success' });
       setModal(null);
       await load();
@@ -363,8 +402,9 @@ export default function RouteLogs() {
     if (!formData.employee_id) return;
     setSavingNew(true);
     const cleanPackOuts = (formData.pack_outs || []).filter(p => p.pack_out_time || p.back_on_route_time);
+    const cleanAdditional = (formData.additional_routes || []).filter(ar => ar.route_number);
     try {
-      await api.routeLogs.create({ ...formData, log_date: date, pack_outs: cleanPackOuts });
+      await api.routeLogs.create({ ...formData, log_date: date, pack_outs: cleanPackOuts, additional_routes: cleanAdditional });
       setToast({ msg: `${employees.find(e => String(e.id) === String(formData.employee_id))?.name || 'Driver'} added`, type: 'success' });
       resetFn();
       await load();
@@ -375,8 +415,9 @@ export default function RouteLogs() {
   async function saveInlineEdit(logId, formData) {
     setSavingId(logId);
     const cleanPackOuts = (formData.pack_outs || []).filter(p => p.pack_out_time || p.back_on_route_time);
+    const cleanAdditional = (formData.additional_routes || []).filter(ar => ar.route_number);
     try {
-      await api.routeLogs.update(logId, { ...formData, pack_outs: cleanPackOuts });
+      await api.routeLogs.update(logId, { ...formData, pack_outs: cleanPackOuts, additional_routes: cleanAdditional });
       setEditingId(null);
       setToast({ msg: 'Saved', type: 'success' });
       await load();
@@ -391,7 +432,6 @@ export default function RouteLogs() {
   }
 
   function switchMode(mode) { setEditingId(null); setEntryMode(mode); }
-
   const loggedIds = new Set(logs.map(l => l.employee_id));
   const unloggedEmployees = employees.filter(e => !loggedIds.has(e.id));
   const COL_COUNT = entryMode === 'form' ? 12 : 11;
@@ -400,9 +440,7 @@ export default function RouteLogs() {
     <div>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       {showExport && <ExportModal currentDate={date} onClose={() => setShowExport(false)} />}
-      {showImport && (
-        <ImportModal onClose={() => setShowImport(false)} onImported={() => { load(); setToast({ msg: 'Import complete', type: 'success' }); }} />
-      )}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={() => { load(); setToast({ msg: 'Import complete', type: 'success' }); }} />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
@@ -426,38 +464,32 @@ export default function RouteLogs() {
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'var(--text2)' }}>
               <span>Drivers logged today</span>
-              <span style={{ color: logs.length === employees.length ? 'var(--accent)' : 'var(--text)' }}>
-                <strong>{logs.length}</strong> / {employees.length}
-              </span>
+              <span style={{ color: logs.length === employees.length ? 'var(--accent)' : 'var(--text)' }}><strong>{logs.length}</strong> / {employees.length}</span>
             </div>
             <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 99, overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: 99, background: logs.length === employees.length ? 'var(--accent)' : 'var(--info)', width: employees.length > 0 ? `${(logs.length / employees.length) * 100}%` : '0%', transition: 'width 0.3s ease' }} />
             </div>
           </div>
-          {unloggedEmployees.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text3)', maxWidth: 400 }}>Missing: {unloggedEmployees.map(e => e.name).join(', ')}</div>
-          )}
+          {unloggedEmployees.length > 0 && <div style={{ fontSize: 12, color: 'var(--text3)', maxWidth: 400 }}>Missing: {unloggedEmployees.map(e => e.name).join(', ')}</div>}
         </div>
       )}
 
       {entryMode === 'inline' && (
         <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10, padding: '8px 14px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', display: 'flex', gap: 16 }}>
           <span>⊞ <strong style={{ color: 'var(--text2)' }}>Inline mode</strong> — use the top row to add entries. Click any existing row to edit it.</span>
-          <span>↵ Enter to save · Esc to cancel</span>
+          <span>↵ Enter to save · Esc to cancel · Additional routes: use ✏️ form edit</span>
         </div>
       )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 48, color: 'var(--text3)' }}>Loading…</div>
-        ) : (
+        {loading ? <div style={{ textAlign: 'center', padding: 48, color: 'var(--text3)' }}>Loading…</div> : (
           <div style={{ overflowX: 'auto' }}>
             <table>
               <thead>
                 <tr>
-                  <th>Driver</th><th>Route #</th><th>Punch In</th><th>1st Stop</th>
+                  <th>Driver</th><th>Route(s)</th><th>Punch In</th><th>1st Stop</th>
                   <th>Route Complete</th><th>To Yard</th><th>Punch Out</th><th>Day Length</th>
-                  <th>Pack Outs</th>
+                  <th>Extras</th>
                   {entryMode === 'form' && <th>Status</th>}
                   <th>Notes</th><th></th>
                 </tr>
@@ -466,7 +498,6 @@ export default function RouteLogs() {
                 {entryMode === 'inline' && (
                   <InlineNewRow employees={employees} routes={routes} loggedEmployeeIds={loggedIds} onSave={saveInlineNew} isSaving={savingNew} />
                 )}
-
                 {logs.length === 0 && entryMode === 'form' && (
                   <tr><td colSpan={COL_COUNT} style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text3)' }}>
                     <div style={{ fontSize: 32, marginBottom: 8 }}>🚛</div>
@@ -475,28 +506,32 @@ export default function RouteLogs() {
                   </td></tr>
                 )}
                 {logs.length === 0 && entryMode === 'inline' && (
-                  <tr><td colSpan={COL_COUNT} style={{ textAlign: 'center', padding: '24px 20px', color: 'var(--text3)', fontSize: 13 }}>
-                    No entries yet — use the row above to add the first one.
-                  </td></tr>
+                  <tr><td colSpan={COL_COUNT} style={{ textAlign: 'center', padding: '24px 20px', color: 'var(--text3)', fontSize: 13 }}>No entries yet — use the row above to add the first one.</td></tr>
                 )}
-
                 {logs.map(log => {
                   if (entryMode === 'form') {
                     const dl = dayLen(log.punch_in, log.punch_out);
                     const complete = !!log.punch_out;
-                    const started = !!log.punch_in;
-                    const poCount = (log.pack_outs || []).length;
+                    const started  = !!log.punch_in;
+                    const poCount  = (log.pack_outs || []).length;
+                    const arCount  = (log.additional_routes || []).filter(ar => ar.route_number).length;
                     return (
                       <tr key={log.id}>
                         <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{log.employee_name}</td>
-                        <td><RouteCell routeNumber={log.route_number} routeArea={log.route_area} /></td>
+                        <td><RouteCell routeNumber={log.route_number} routeArea={log.route_area} additionalRoutes={log.additional_routes} /></td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{fmt(log.punch_in)}</td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{fmt(log.first_stop_time)}</td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{fmt(log.route_complete_time)}</td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{fmt(log.to_yard_time)}</td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{fmt(log.punch_out)}</td>
                         <td>{dl ? <span style={{ fontWeight: 500, color: 'var(--accent)' }}>{dl}</span> : <span style={{ color: 'var(--text3)' }}>—</span>}</td>
-                        <td>{poCount > 0 ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, background: 'var(--bg3)', padding: '2px 8px', borderRadius: 4, color: 'var(--amber)' }}>{poCount}×</span> : <span style={{ color: 'var(--text3)' }}>—</span>}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {poCount > 0 && <span style={{ fontFamily: 'var(--mono)', fontSize: 12, background: 'var(--bg3)', padding: '2px 8px', borderRadius: 4, color: 'var(--amber)' }}>{poCount}× dumps</span>}
+                            {arCount > 0 && <span style={{ fontSize: 11, color: 'var(--amber)', padding: '2px 7px', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 4 }}>+{arCount} route{arCount > 1 ? 's' : ''}</span>}
+                            {poCount === 0 && arCount === 0 && <span style={{ color: 'var(--text3)' }}>—</span>}
+                          </div>
+                        </td>
                         <td>{complete ? <span className="tag tag-green">Complete</span> : started ? <span className="tag tag-blue">In Progress</span> : <span className="tag tag-gray">Pending</span>}</td>
                         <td style={{ color: 'var(--text3)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.notes || '—'}</td>
                         <td>
@@ -508,12 +543,8 @@ export default function RouteLogs() {
                       </tr>
                     );
                   }
-
                   if (editingId === log.id) {
-                    return (
-                      <InlineEditRow key={log.id} data={rowToForm(log)} employees={employees} routes={routes} loggedEmployeeIds={loggedIds}
-                        isSaving={savingId === log.id} onSave={fd => saveInlineEdit(log.id, fd)} onCancel={() => setEditingId(null)} />
-                    );
+                    return <InlineEditRow key={log.id} data={rowToForm(log)} employees={employees} routes={routes} loggedEmployeeIds={loggedIds} isSaving={savingId === log.id} onSave={fd => saveInlineEdit(log.id, fd)} onCancel={() => setEditingId(null)} />;
                   }
                   return <InlineReadRow key={log.id} log={log} onEdit={l => setEditingId(l.id)} onDelete={del} />;
                 })}
@@ -523,6 +554,7 @@ export default function RouteLogs() {
         )}
       </div>
 
+      {/* Form modal */}
       {modal && (
         <Modal title={modal === 'add' ? 'Add Route Log Entry' : `Edit — ${modal.employee_name || 'Entry'}`} onClose={() => setModal(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -534,7 +566,7 @@ export default function RouteLogs() {
               </select>
             </div>
             <div className="form-group">
-              <label>Route #</label>
+              <label>Primary Route</label>
               <select value={form.route_number} onChange={f('route_number')}>
                 <option value="">Select route…</option>
                 {routes.map(r => <option key={r.id} value={r.route_name}>{r.route_name}{r.area && r.area.trim() ? ` — ${r.area.trim()}` : ''}</option>)}
@@ -551,22 +583,27 @@ export default function RouteLogs() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                 <span style={{ color: 'var(--text3)' }}>Day length:</span>
-                <span style={{ fontWeight: 600, color: dayLen(form.punch_in, form.punch_out) ? 'var(--accent)' : 'var(--text3)' }}>
-                  {dayLen(form.punch_in, form.punch_out) || '—'}
-                </span>
+                <span style={{ fontWeight: 600, color: dayLen(form.punch_in, form.punch_out) ? 'var(--accent)' : 'var(--text3)' }}>{dayLen(form.punch_in, form.punch_out) || '—'}</span>
               </div>
             </div>
+
+            {/* Additional routes */}
+            <AdditionalRoutesCard
+              additionalRoutes={form.additional_routes || []}
+              routes={routes}
+              onChange={ar => setForm(p => ({ ...p, additional_routes: ar }))}
+            />
+
+            {/* Pack outs */}
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pack Out Events</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Optional — add one entry per dump run</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Add one entry per dump run</div>
                 </div>
                 <button className="btn btn-ghost btn-sm" type="button" onClick={addPackOut}>+ Add Pack Out</button>
               </div>
-              {(!form.pack_outs || form.pack_outs.length === 0) && (
-                <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '8px 0' }}>No pack-out events recorded</div>
-              )}
+              {(!form.pack_outs || form.pack_outs.length === 0) && <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '8px 0' }}>No pack-out events recorded</div>}
               {(form.pack_outs || []).map((po, idx) => (
                 <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
@@ -574,14 +611,8 @@ export default function RouteLogs() {
                     <button className="btn-icon" type="button" onClick={() => removePackOut(idx)} style={{ fontSize: 14, color: 'var(--danger)', opacity: 0.7 }}>×</button>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                    <div className="form-group">
-                      <label>Pack Out Time</label>
-                      <input type="time" value={po.pack_out_time} onChange={e => updatePackOut(idx, 'pack_out_time', e.target.value)} />
-                    </div>
-                    <div className="form-group">
-                      <label>Back On Route</label>
-                      <input type="time" value={po.back_on_route_time} onChange={e => updatePackOut(idx, 'back_on_route_time', e.target.value)} />
-                    </div>
+                    <div className="form-group"><label>Pack Out Time</label><input type="time" value={po.pack_out_time} onChange={e => updatePackOut(idx, 'pack_out_time', e.target.value)} /></div>
+                    <div className="form-group"><label>Back On Route</label><input type="time" value={po.back_on_route_time} onChange={e => updatePackOut(idx, 'back_on_route_time', e.target.value)} /></div>
                     <div className="form-group">
                       <label>Location</label>
                       <select value={po.location || ''} onChange={e => updatePackOut(idx, 'location', e.target.value)}>
@@ -593,6 +624,7 @@ export default function RouteLogs() {
                 </div>
               ))}
             </div>
+
             <div className="form-group">
               <label>Route Notes</label>
               <textarea value={form.notes} onChange={f('notes')} rows={3} placeholder="Any notes about the route, incidents, delays…" style={{ resize: 'vertical' }} />

@@ -5,85 +5,112 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-04-20
+
+### Added
+
+#### Multiple Route Assignments per Driver
+- New `additional_route_logs` table — links to a `route_log` and stores one row per extra route a driver ran that day, each with its own `route_number`, `first_stop_time`, `route_complete_time`, and `notes`
+- Migration `005_add_additional_routes.sql` — picked up automatically on next startup
+- `routeLogs.js` API — all GET/POST/PUT responses now include `additional_routes[]`; upsert transaction handles them atomically alongside pack-outs
+- WAL crash recovery updated to replay `additional_route_logs` as part of `route_log.upsert`
+- `RouteLogs.jsx` — new **Additional Routes** card in the form modal (amber-accented, with route select, 1st stop, route complete, notes per row); `RouteCell` now shows amber `+Route N` badges; "Extras" column shows both dump count and additional route count
+- Backup/Restore updated to include `additional_route_logs` in both download and restore; erase also resets its sequence
+
+#### Route Duration Report
+- New **🛣 Route Duration** tab in Reports (between Friday Hours and Report Builder)
+- Calculates `first_stop_time → route_complete_time` per route across a date range
+- Combines primary `route_logs` AND `additional_route_logs` in a single `UNION ALL` query so drivers who helped with extra routes are counted correctly
+- Results table: Route | Runs | Avg Duration | Visual bar chart | Fastest | Slowest
+- Click any row to expand a per-run detail sub-table showing date, driver, times, and duration
+- Date range presets (Today / This Week / Last Week / Last 30 / Last 90 / Custom)
+- Optional route filter (multi-select)
+- CSV export flattens to one row per run
+
+#### Write-Ahead Log (Crash Safety)
+- New `api/src/wal.js` — append-only intent log stored in Docker named volume `wal_data` at `/app/data/wal.log`
+- `walAppend()` writes a `pending` entry synchronously before the DB write starts
+- `walCommit()` marks the entry `committed` after the transaction succeeds
+- `walRecover()` runs at every startup, replays any `pending` entries older than 60 seconds that were never committed (i.e. lost to a crash), marks them `replayed`
+- `walCompact()` prunes committed/replayed entries older than 7 days to keep the file small
+- `routeLogs.js` POST and PUT both wrap DB writes with WAL; PUT does a quick lookup first to get `employee_id`/`log_date` for idempotent `ON CONFLICT` replay
+- `docker-compose.yml` — adds `wal_data` named volume mounted to API container at `/app/data`
+- Startup sequence: `runMigrations → walRecover → seedAdmin → listen`
+
+#### Pool Crash Fix
+- `api/src/index.js` — `pool.on('error', ...)` handler prevents unhandled error events (pg error `57P01` — "terminating connection due to administrator command") from crashing the Node.js process
+- Pool configured with `keepAlive: true`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 5000`
+
+### Fixed
+- Backup restore transaction now includes all columns for all tables including newer fields (`excluded`, `to_yard_time`, `location`, `driver_id`, `exclude_from_next_up`) — previously a column mismatch caused the transaction to silently roll back and restore nothing
+- Dashboard API now includes `e.exclude_from_next_up` in the routeList SELECT — previously the field was saved to the DB but never returned to display boards, so the Next Up filter never worked
+
+---
+
+## [1.1.1] — 2026-04-20
+
+### Added
+- Migration `004_add_exclude_from_next_up.sql` — `exclude_from_next_up BOOLEAN DEFAULT FALSE` on employees
+- `EmployeesMgmt.jsx` — "Exclude from Route Assignment Recommendation" checkbox in modal, Included/Excluded pill column in table
+- Both display boards filter `exclude_from_next_up = true` drivers out of `computeNextUp()`
+
+### Fixed
+- Dashboard API: `e.exclude_from_next_up` was missing from the routeList SELECT — the flag was saved but never reached the display boards
+- Nginx `map` directive moved from `server` block to `http` block (nginx error `"map" directive is not allowed here`)
+- Nginx `set $upstream` dynamic variables removed; direct `proxy_pass` with static hostnames used instead
+
+---
+
 ## [1.1.0] — 2026-04-19
 
 ### Added
 
 #### Data Model
-- `to_yard_time` field on route logs — tracks when a driver departs for the yard at end of day
-- `location` field on pack-out logs — dump site selector: Alva, Naughton, or Casella
-- `excluded` boolean on routes — when enabled, route is hidden from all dashboard stats, display boards, and report averages (data entry still works normally)
-- `driver_id` field on employees — internal identifier for payroll/dispatch systems; admin-only, not exposed to regular users
+- `to_yard_time` TIME on route_logs
+- `location` VARCHAR(20) on pack_out_logs — Alva | Naughton | Casella
+- `excluded` BOOLEAN on routes
+- `driver_id` VARCHAR(50) on employees — admin-only
 
 #### Auto-Migration System
-- `api/src/db/migrate.js` — migration runner that creates a `schema_migrations` tracking table and applies any pending numbered `.sql` files in order on every startup
-- `001_add_packout_table.sql`, `002_v1_1_new_columns.sql`, `003_add_driver_id.sql` — numbered migration files; no manual `docker exec` SQL needed ever again
-- Failed migrations abort startup with a clear error log rather than running a broken server
+- `api/src/db/migrate.js` — runs on every API startup; applies pending `NNN_*.sql` files; server exits if a migration fails
+- `001_add_packout_table.sql`, `002_v1_1_new_columns.sql`, `003_add_driver_id.sql`
 
 #### Slim Display Board (`/slimdisplay/`)
-- New `slim-display-ui` container on port 3002
-- Shows only Next Up (Route Assignment Recommendation) and Driver Route KPI table
-- Same data source and 60-second refresh as the full display board
-- Subtitle: "ROUTE ASSIGNMENT BOARD"
-- Added to `docker-compose.yml` and nginx proxy config
+- New `slim-display-ui` container, port 3002, React/Vite
+- Next Up card + Driver KPI table only
 
 #### Reports Section
-- New **📊 Reports** nav item in the admin sidebar
-- **Friday Hours tab** — canned report showing Mon–Thu hours per driver for any selected week, sorted most hours first; medal emojis for top 3; zero-data drivers shown greyed at bottom; CSV export
-- **Report Builder tab** — flexible query tool with column selection (pill toggles), date range presets (Today/This Week/Last Week/Last 30/Last 90/Custom), driver multi-select, route multi-select, completion status filter; results render inline; CSV export with row count
+- **📅 Friday Hours** — Mon–Thu accumulated hours per driver, sorted most first
+- **🔧 Report Builder** — flexible query with column picker, date presets, driver/route/status filters, inline results, CSV export
 
 #### Route Exclusion
-- Routes management page now shows an **Included/Excluded** pill toggle per route — click to flip without opening the modal
-- Excluded routes: dimmed in the routes table, filtered from all dashboard API queries (stats, averages, trends, top routes), filtered from display board stats
-- Excluded routes still appear in data entry dropdowns (exclusion affects analytics only)
+- Pill toggle in Routes management table — click to flip Included/Excluded
+- Excluded routes filtered from dashboard stats, display boards, and report averages
+- Data entry dropdowns unaffected (exclusion is analytics-only)
 
-#### Driver ID (Admin-only)
-- `driver_id` field in employee create/edit modal with "Admin only" badge
-- Admin-role users see a Driver ID column in the employees table
-- API enforces role — non-admins cannot read or write `driver_id`
+#### Driver ID
+- Admin-only field + badge in employee modal
+- API enforces role on read and write
 
 ### Changed
-- `nginx/entrypoint.sh` switched from `envsubst` to `sed` for REAL_HOST injection — prevents `envsubst` from inadvertently stripping nginx's own `$variables`
-- `nginx/nginx.conf.template` uses `$real_scheme` (derived from `X-Forwarded-Proto` header) for redirects — fixes redirect loops when behind an HTTPS-terminating upstream proxy
-- `api/src/index.js` — startup sequence is now `runMigrations → seedAdmin → listen`; server does not start if a migration fails
-- Routes API `GET /api/routes` accepts `?all=true` to return all routes including excluded ones (used by the management page); default returns active-only (used by data entry)
-- Pack-out popover in inline editor expanded to 3 columns: Pack Out time | Back On Route time | Location
+- `nginx/entrypoint.sh` — `envsubst` replaced with `sed` + literal `REAL_HOST_VALUE` placeholder
+- Nginx `$real_scheme` derived from `X-Forwarded-Proto` for correct redirects behind HTTPS proxies
+- API startup: `runMigrations → seedAdmin → listen`
 
 ### Fixed
-- Route entry dropdowns no longer filter out excluded routes — exclusion is analytics-only
+- Route entry dropdowns no longer filter out excluded routes
 
 ---
 
 ## [1.0.0] — 2026-04-12
 
 ### Initial release
-
-#### Admin Portal
-- Daily route log entry with **Form mode** (modal dialogs) and **Inline mode** (Excel-style direct table editing)
-- Custom time picker dropdown component for inline editing — scrollable hour, minute, and AM/PM columns
-- Pack-out event tracking — multiple dump runs per driver per day with pack-out time and back-on-route time
-- Driver management — name, employee number, position, active/inactive status
-- Route management — route name, description, area tag (shown as badge on display board)
-- CSV import with automatic driver name resolution, pack-out column detection, and preview step
-- CSV export with dynamic pack-out columns scaled to the maximum dump count for the date
-- Daily progress bar showing how many of the full driver roster have been logged
-- Date navigation (← / → arrows) with keyboard support
-
-#### Display Board
-- Read-only TV dashboard — no login required
-- Live clock with full date display, auto-refreshes every 60 seconds
-- Stat tiles row, Avg Clock Times card, Avg Punch In → 1st Stop card
-- Route Assignment Recommendation (Next Up) — 25% left panel
-- Driver Route KPI table — 75% right panel, sorted fastest → slowest by 7d avg
-- Always-visible amber notes bar beneath each driver row
-
-#### Admin Settings (admin role only)
-- Backup & Restore tab — JSON snapshot download, restore with preview, Erase All Data (double-confirm)
-- Users tab — create/edit/delete accounts, Admin and User roles, safety guards
-
-#### API & Infrastructure
-- JWT authentication, role-based access control
-- Fully Dockerized — five containers: nginx, api, admin-ui, display-ui, postgres
-- PostgreSQL 16 with named volume persistence
-- Nginx reverse proxy with REAL_HOST support
-- Auto-initializes with 12 seeded drivers and 8 seeded routes
+- Daily route log entry — Form mode and Inline (Excel-style) mode
+- Pack-out event tracking (multiple dump runs per driver)
+- Driver and Route management with area tags
+- CSV import/export
+- Full display board — stat tiles, Next Up, Driver KPI table
+- Backup/Restore/Erase
+- User management with Admin/User roles
+- JWT authentication
+- PostgreSQL 16, Docker Compose, 6-container architecture

@@ -9,7 +9,7 @@ External Request (port 3300)
         │
         ▼
    ┌─────────┐
-   │  Nginx  │  ← reverse proxy + gzip + sed-based REAL_HOST injection
+   │  Nginx  │  ← reverse proxy, gzip, sed-based REAL_HOST injection
    └────┬────┘
         │
         ├──/api/*──────────────► api:4000          (Node.js/Express)
@@ -19,6 +19,7 @@ External Request (port 3300)
         └──/slimdisplay/*──────► slim-display-ui:3002 (React/Vite → Nginx)
 
    api:4000 ──────────────────► postgres:5432 (PostgreSQL 16)
+   api:4000 ──────────────────► /app/data/wal.log (wal_data volume)
 ```
 
 ## Services
@@ -32,54 +33,14 @@ External Request (port 3300)
 | REST API | `waste-kpi-api` | 4000 | node:20-alpine |
 | Database | `waste-kpi-postgres` | 5432 | postgres:16-alpine |
 
-All services share the `waste-kpi-net` bridge network (`172.30.0.0/24`). No database port is exposed to the host.
+## Volumes
 
-## Network Flow
+| Volume | Contents |
+|---|---|
+| `postgres_data` | All PostgreSQL data files |
+| `wal_data` | Write-Ahead Log at `/app/data/wal.log` |
 
-```
-Browser ──► nginx:3300
-              ├── /api/*          proxy_pass → api:4000
-              ├── /admin/*        proxy_pass → admin-ui:3000
-              ├── /display/*      proxy_pass → display-ui:3001
-              └── /slimdisplay/*  proxy_pass → slim-display-ui:3002
-
-api:4000 ──► postgres:5432 (internal only)
-```
-
-## Nginx REAL_HOST Injection
-
-The nginx config template uses a unique literal placeholder `REAL_HOST_VALUE` which is replaced at container startup by `nginx/entrypoint.sh` using `sed`:
-
-```sh
-sed "s|REAL_HOST_VALUE|${REAL_HOST}|g" \
-    /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
-nginx -t && nginx -g 'daemon off;'
-```
-
-`sed` is used instead of `envsubst` to avoid `envsubst` accidentally replacing nginx's own `$variables` (like `$host`, `$scheme`, `$remote_addr`). The `nginx -t` config test runs before startup so errors surface immediately in `docker logs`.
-
-Redirects use `$real_scheme` (derived from the `X-Forwarded-Proto` header) so they work correctly when the app sits behind an HTTPS-terminating upstream proxy.
-
-## Authentication
-
-- JWT tokens are issued on login (`POST /api/auth/login`)
-- Tokens are signed with `JWT_SECRET`, expire after 24 hours
-- Every API request (except the display dashboard summary) requires `Authorization: Bearer <token>`
-- The middleware decodes the token and attaches `req.user = { id, username, role }`
-- **Admin role** — full access including user management, backup/restore/erase, driver_id field, reports
-- **User role** — can read/write all operational data (route logs, employees, routes) but cannot access admin-only endpoints
-
-## Auto-Migration System
-
-The API runs `api/src/db/migrate.js` before starting the HTTP server. The runner:
-
-1. Creates a `schema_migrations` table if it doesn't exist
-2. Reads all `NNN_*.sql` files from `api/src/db/`, sorted by filename
-3. Skips files already recorded in `schema_migrations`
-4. Runs each pending file in its own connection + `BEGIN/COMMIT` transaction
-5. If any migration fails, rolls back and exits with code 1 (server does not start)
-
-To add a future migration: create `api/src/db/004_description.sql`. It runs automatically on next startup.
+Both named volumes persist across `docker compose down` and container rebuilds. Only destroyed with `docker compose down -v`.
 
 ## Database Schema
 
@@ -88,8 +49,10 @@ users
   id, username, password_hash, role, created_at
 
 employees
-  id, name, employee_number, driver_id, position, active, created_at
+  id, name, employee_number, driver_id, position, active,
+  exclude_from_next_up, created_at
   driver_id — internal identifier, admin-only via API
+  exclude_from_next_up — removes driver from Next Up recommendation
 
 routes
   id, route_name, description, area, active, excluded, created_at
@@ -108,6 +71,11 @@ pack_out_logs                       ← multiple per route_log
   location                          ← Alva | Naughton | Casella
   created_at
 
+additional_route_logs               ← multiple per route_log (extra routes)
+  id, route_log_id, seq
+  route_number, first_stop_time, route_complete_time, notes
+  created_at
+
 clock_logs                          ← non-driving staff only
   id, employee_id, log_date
   clock_in, clock_out, notes
@@ -117,21 +85,59 @@ schema_migrations                   ← migration tracking
   id, filename, applied_at
 ```
 
-## Build Process
+## Auto-Migration System
 
-The React apps are compiled at image build time using a multi-stage Docker build:
+`api/src/db/migrate.js` runs before the HTTP server starts:
 
-1. **Stage 1** — `node:20-alpine`: runs `npm install` and `npm run build`, produces `/app/dist`
-2. **Stage 2** — `nginx:alpine`: copies `/app/dist` into the nginx html root, serves static files
+1. Creates `schema_migrations` table if absent
+2. Reads all `NNN_*.sql` files from `api/src/db/`, sorted by filename
+3. Skips files already recorded in `schema_migrations`
+4. Runs each pending file in its own connection + `BEGIN/COMMIT` transaction
+5. If a migration fails: rolls back, logs the error, and exits with code 1
 
-Built images contain no Node.js runtime — only Nginx serving pre-compiled static assets.
+To add a new migration: create `api/src/db/006_description.sql`. It runs automatically on next startup.
 
-## Data Persistence
+## Write-Ahead Log (WAL)
 
-PostgreSQL data is stored in the `postgres_data` named Docker volume. It persists across container restarts and `docker compose down`. Only destroyed with:
+`api/src/wal.js` provides crash-safe writes for route log saves:
 
-```bash
-docker compose down -v
+1. `walAppend(operation, payload)` — synchronous `appendFileSync` before the DB write. Entry is `pending`.
+2. DB write executes in a transaction.
+3. `walCommit(id)` — marks entry `committed` after the transaction succeeds.
+4. On crash: the entry stays `pending`. At next startup, `walRecover(pool)` replays all `pending` entries older than 60 seconds.
+5. Replay is idempotent — `ON CONFLICT (employee_id, log_date) DO UPDATE` makes double-applying safe.
+6. `walCompact()` prunes old committed/replayed entries (>7 days) at startup.
+
+The WAL log lives in the `wal_data` named Docker volume so it survives container restarts and rebuilds.
+
+## API Startup Sequence
+
+```
+runMigrations(pool)   →  apply pending schema migrations
+walRecover(pool)      →  replay any unacknowledged writes from last crash
+seedAdmin()           →  create ADMIN_USERNAME if it doesn't exist
+app.listen(PORT)      →  begin accepting requests
 ```
 
-Use **Admin Settings → 💾 Backup & Restore → Download Backup** before any destructive operations.
+## Nginx REAL_HOST Injection
+
+`nginx/entrypoint.sh` uses `sed` to inject the external hostname at container startup:
+
+```sh
+sed "s|REAL_HOST_VALUE|${REAL_HOST}|g" \
+    /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+nginx -t && nginx -g 'daemon off;'
+```
+
+`sed` is used instead of `envsubst` because `envsubst` would replace nginx's own `$variables` (`$host`, `$scheme`, `$remote_addr`, etc.). The `nginx -t` test surfaces config errors immediately in `docker logs`.
+
+The `map` directive that derives `$real_scheme` from `X-Forwarded-Proto` lives in the `http` block — nginx does not allow `map` inside a `server` block.
+
+## Build Process
+
+Multi-stage Docker builds for all three React apps:
+
+1. **Stage 1** — `node:20-alpine`: `npm install` + `npm run build` → `/app/dist`
+2. **Stage 2** — `nginx:alpine`: copies `/app/dist` to nginx html root
+
+Built images contain no Node.js runtime. Only nginx serves the pre-compiled static assets.

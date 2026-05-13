@@ -10,7 +10,7 @@
 
 ## Local Development Setup
 
-Run only PostgreSQL in Docker; run the API and frontend apps directly for hot-reloading.
+Run only PostgreSQL in Docker; run the API and frontends directly for hot-reloading.
 
 ### 1. Start the database
 
@@ -26,19 +26,20 @@ npm install
 ```
 
 Create `api/.env`:
-```bash
-DATABASE_URL=postgresql://waste_user:changeme_db_password@localhost:5432/waste_kpi
-JWT_SECRET=dev_secret_at_least_32_chars_long_here
+```
+DATABASE_URL=postgresql://waste_user:changeme@localhost:5432/waste_kpi
+JWT_SECRET=dev_secret_at_least_32_chars_long
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123
 NODE_ENV=development
+WAL_DIR=./data
 ```
 
 ```bash
-npm run dev   # nodemon, auto-reloads
+npm run dev   # nodemon, auto-reloads on change
 ```
 
-Migrations run on startup — `schema_migrations` table is created automatically.
+Migrations run automatically on startup. WAL log writes to `./data/wal.log` locally.
 
 ### 3. Admin UI
 
@@ -63,55 +64,53 @@ waste-kpi/
 ├── api/src/
 │   ├── db/
 │   │   ├── schema.sql              # DDL + seed data (auto-run on first postgres start)
-│   │   ├── migrate.js              # Migration runner — runs on every API startup
+│   │   ├── migrate.js              # Migration runner (runs on every API startup)
 │   │   ├── 001_add_packout_table.sql
 │   │   ├── 002_v1_1_new_columns.sql
-│   │   └── 003_add_driver_id.sql
-│   ├── middleware/
-│   │   └── auth.js                 # JWT verification; whitelists display dashboard
+│   │   ├── 003_add_driver_id.sql
+│   │   ├── 004_add_exclude_from_next_up.sql
+│   │   └── 005_add_additional_routes.sql
+│   ├── middleware/auth.js
 │   ├── routes/
-│   │   ├── auth.js                 # POST /api/auth/login
-│   │   ├── employees.js            # CRUD — driver_id filtered by role
-│   │   ├── routes.js               # CRUD — ?all=true for management page
-│   │   ├── routeLogs.js            # CRUD with pack_outs transaction + to_yard_time
-│   │   ├── packOuts.js             # CRUD with location field
-│   │   ├── clockLogs.js            # CRUD /api/clock-logs
-│   │   ├── dashboard.js            # GET /api/dashboard/summary (excluded route filter)
-│   │   ├── import.js               # POST /api/import (to_yard + location columns)
-│   │   ├── backup.js               # GET/POST backup, restore, erase
-│   │   ├── users.js                # CRUD /api/users (admin only)
-│   │   └── reports.js              # GET friday-hours, POST custom
-│   └── index.js                    # runMigrations → seedAdmin → listen
+│   │   ├── auth.js
+│   │   ├── employees.js       — driver_id filtered by role; exclude_from_next_up all users
+│   │   ├── routes.js          — ?all=true for management page
+│   │   ├── routeLogs.js       — WAL-protected POST/PUT; additional_routes[] in transactions
+│   │   ├── packOuts.js        — location field
+│   │   ├── clockLogs.js
+│   │   ├── dashboard.js       — excluded route filter; exclude_from_next_up per row
+│   │   ├── import.js
+│   │   ├── backup.js          — includes additional_route_logs
+│   │   ├── users.js
+│   │   └── reports.js         — friday-hours, route-duration, custom
+│   ├── wal.js                 — Write-Ahead Log (append, commit, recover, compact)
+│   └── index.js               — runMigrations → walRecover → seedAdmin → listen
 │
 ├── admin-ui/src/
 │   ├── components/
-│   │   ├── Layout.jsx              # Sidebar: Dashboard, Route Logs, Routes, Employees, Reports, Admin Settings
-│   │   ├── Modal.jsx
-│   │   ├── Toast.jsx
-│   │   ├── DateNav.jsx
-│   │   ├── TimePicker.jsx          # Custom hour/minute/AMPM dropdown picker
-│   │   ├── ExportModal.jsx
-│   │   └── ImportModal.jsx
+│   │   ├── Layout.jsx          — sidebar nav including Reports
+│   │   ├── Modal.jsx, Toast.jsx, DateNav.jsx
+│   │   ├── TimePicker.jsx      — custom hour/minute/AMPM dropdown
+│   │   ├── ExportModal.jsx, ImportModal.jsx
 │   ├── pages/
 │   │   ├── Login.jsx
 │   │   ├── Dashboard.jsx
-│   │   ├── RouteLogs.jsx           # Form + Inline modes; to_yard_time; pack-out location
-│   │   ├── RoutesMgmt.jsx          # Excluded toggle (pill + modal checkbox)
-│   │   ├── EmployeesMgmt.jsx       # Driver ID field (admin-only)
-│   │   ├── Reports.jsx             # Friday Hours tab + Report Builder tab
-│   │   └── Admin.jsx               # Backup/Restore/Erase + Users tabs
-│   ├── api.js                      # Includes routes.listAll(), reports.*
+│   │   ├── RouteLogs.jsx       — AdditionalRoutesCard; RouteCell with amber badges
+│   │   ├── RoutesMgmt.jsx      — excluded toggle
+│   │   ├── EmployeesMgmt.jsx   — driver_id (admin) + exclude_from_next_up
+│   │   ├── Reports.jsx         — Friday Hours + Route Duration + Report Builder tabs
+│   │   └── Admin.jsx
+│   ├── api.js                  — reports.routeDuration(), reports.routeDurationCsv()
 │   └── App.jsx
 │
-├── display-ui/src/App.jsx          # Full display board
-├── slim-display-ui/src/App.jsx     # Slim board — NextUpCard + DriverTable only
+├── display-ui/src/App.jsx       — computeNextUp filters exclude_from_next_up
+├── slim-display-ui/src/App.jsx  — same filter
 │
 ├── nginx/
-│   ├── nginx.conf.template         # sed placeholder REAL_HOST_VALUE; $real_scheme for redirects
-│   └── entrypoint.sh               # sed replace + nginx -t + nginx -g 'daemon off;'
+│   ├── nginx.conf.template      — REAL_HOST_VALUE placeholder; map in http block
+│   └── entrypoint.sh            — sed replace + nginx -t
 │
-├── docs/
-├── docker-compose.yml              # 6 services: nginx, api, admin-ui, display-ui, slim-display-ui, postgres
+├── docker-compose.yml           — wal_data named volume added
 └── .env.example
 ```
 
@@ -119,31 +118,34 @@ waste-kpi/
 
 ## Key Design Decisions
 
-### Migration runner
-`migrate.js` uses a fresh pg client per migration to avoid transaction state leaking between files. The server exits (code 1) if any migration fails — a broken schema never results in a silently broken running server.
+### Write-Ahead Log
+`wal.js` uses `appendFileSync` (synchronous, atomic for single-line writes) before the DB write. The NDJSON format means the file is appendable without reads. On startup, `walRecover` replays `pending` entries older than 60 seconds — the age threshold prevents replaying entries from a previous instance that was still mid-flight. Replay is idempotent via `ON CONFLICT (employee_id, log_date) DO UPDATE`.
 
-### Excluded routes
-The `excluded` flag on routes is enforced in the dashboard API using a correlated `NOT EXISTS` subquery. This means: data entry is never affected, the daily log still shows all drivers, but all averages/stats/trends skip excluded route entries. The dashboard returns `route_excluded` per row so the display board could render excluded rows differently if needed.
+### Additional Routes
+Stored in `additional_route_logs` rather than breaking the `UNIQUE(employee_id, log_date)` constraint on `route_logs`. This keeps the primary record as the owner of punch in/out and day-level KPIs while allowing unlimited secondary route assignments per day. The `upsertAdditionalRoutes` helper runs in the same transaction as the primary upsert and pack-outs, so all three are atomic.
 
-### Driver ID access control
-The `employees.js` route builds its `SELECT` column list and `SET` clause dynamically based on `req.user.role`. Non-admins cannot read or write `driver_id` even if they craft a direct API request.
+### Route Duration Report
+Uses a `WITH all_runs AS (primary UNION ALL additional)` CTE to count both primary and additional route assignments in one query. `JSON_AGG` produces the per-run detail array server-side, avoiding N+1 queries. The bar chart in the UI is calculated client-side as `(avg_mins / maxAvg) * 100`.
 
-### Nginx REAL_HOST injection
-Uses `sed` with a unique literal placeholder instead of `envsubst` because `envsubst` without a strict variable list replaces ALL `$VAR` patterns, destroying nginx's own `$host`, `$scheme`, `$remote_addr` etc. The `nginx -t` test before start catches any config errors immediately.
+### Excluded Routes
+Enforced in the dashboard API using a correlated `NOT EXISTS` subquery. Data entry dropdowns use `api.routes.list()` (active only, excluded not filtered) — exclusion is purely analytical.
 
-### Reports API
-Friday Hours: queries Mon–Thu in one LEFT JOIN sweep, pivots in Node.js rather than SQL for simplicity. Custom report: builds a parameterized WHERE clause dynamically; column selection happens in Node.js post-query to keep the SQL simple. Both support `?format=csv` / `"format": "csv"` for direct file download.
+### Driver ID / exclude_from_next_up Access Control
+`employees.js` builds its `SELECT` column list and `SET` clause dynamically based on `req.user.role`. `driver_id` is admin-only. `exclude_from_next_up` is available to all authenticated users (operational, not sensitive).
+
+### Nginx REAL_HOST
+Uses `sed` with a unique literal placeholder `REAL_HOST_VALUE` instead of `envsubst` to avoid clobbering nginx's own `$variables`. The `map` directive derives `$real_scheme` from `X-Forwarded-Proto` and must live in the `http` block — not `server`.
 
 ---
 
 ## Adding a New Migration
 
-1. Create `api/src/db/004_your_description.sql`
+1. Create `api/src/db/006_your_description.sql`
 2. Write idempotent SQL (`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, etc.)
 3. Deploy — the runner applies it automatically on next startup
 
 ## Adding a New API Route
 
 1. Create `api/src/routes/yourroute.js` exporting `(pool) => router`
-2. Register in `api/src/index.js`: `app.use('/api/yourroute', require('./middleware/auth'), require('./routes/yourroute')(pool));`
-3. Add to `admin-ui/src/api.js`
+2. Register in `api/src/index.js`
+3. Add helpers to `admin-ui/src/api.js`

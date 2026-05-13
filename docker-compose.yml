@@ -55,6 +55,9 @@ services:
       NODE_ENV: ${NODE_ENV}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      WAL_DIR: /app/data
+    volumes:
+      - wal_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +102,7 @@ services:
 
 volumes:
   postgres_data:
+  wal_data:
 
 networks:
   waste-kpi-net:

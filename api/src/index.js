@@ -3,12 +3,27 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const runMigrations = require('./db/migrate');
+const { walRecover } = require('./wal');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// ── Connection pool ───────────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+});
+
+// Handle idle client errors (e.g. Postgres restart, pg error 57P01) without
+// crashing the process. The pool discards the dead client automatically.
+pool.on('error', (err) => {
+  console.error('[pool] Idle client error — connection discarded:', err.message);
+});
 
 async function seedAdmin() {
   const { ADMIN_USERNAME, ADMIN_PASSWORD } = process.env;
@@ -42,15 +57,26 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 const PORT = process.env.API_PORT || 4000;
 
 async function start() {
+  // 1. Migrations — must succeed before anything else
   try {
     await runMigrations(pool);
   } catch (e) {
-    console.error('[migrations] Fatal migration error — server will not start.', e.message);
+    console.error('[migrations] Fatal error — server will not start.', e.message);
     process.exit(1);
   }
 
+  // 2. WAL recovery — replay any writes that were in-flight when the last crash occurred
+  try {
+    await walRecover(pool);
+  } catch (e) {
+    // Recovery errors are logged inside walRecover — don't crash the server over them
+    console.error('[wal] Recovery encountered errors (see above). Continuing startup.');
+  }
+
+  // 3. Seed default admin account if needed
   await seedAdmin();
 
+  // 4. Start accepting requests
   app.listen(PORT, () => {
     console.log(`[server] API listening on port ${PORT}`);
   });

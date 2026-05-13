@@ -42,13 +42,14 @@ docker compose build
 docker compose up -d
 ```
 
-Database migrations run automatically on first startup. No manual SQL needed.
+Database migrations and WAL recovery run automatically on first startup. No manual SQL needed.
 
 ### 4. Verify
 
 ```bash
 docker compose ps
 curl http://localhost:3300/api/health   # {"status":"ok"}
+docker compose logs api                 # should show migrations applied + server listening
 ```
 
 ### 5. First login
@@ -61,7 +62,7 @@ curl http://localhost:3300/api/health   # {"status":"ok"}
 
 ## Upstream Proxy Setup (Nginx Proxy Manager)
 
-Point your proxy host at `http://your-server-ip:3300`. In the **Advanced** tab (NPM), add:
+Point your proxy host at `http://your-server-ip:3300`. In the **Advanced** tab, add:
 
 ```nginx
 proxy_set_header Host $host;
@@ -73,19 +74,29 @@ proxy_set_header Connection "upgrade";
 proxy_http_version 1.1;
 ```
 
-These headers are required. Without `X-Forwarded-Proto` the app's redirects will use the wrong scheme.
-
 Set `REAL_HOST` in `.env` to your public domain (e.g. `wastekpi.example.com`).
 
 ---
 
 ## Migrations
 
-Migrations run automatically every time the API container starts. The runner checks which `NNN_*.sql` files in `api/src/db/` have not yet been recorded in the `schema_migrations` table and applies them in order.
+Migrations run automatically every time the API container starts. The runner checks which `NNN_*.sql` files in `api/src/db/` have not yet been recorded in `schema_migrations` and applies them in order.
 
-To add a new migration: create `api/src/db/004_description.sql`. It will be applied on next startup.
+To add a new migration: create `api/src/db/006_description.sql`. It will be applied on next startup.
 
 If a migration fails, the API exits immediately with an error visible in `docker logs waste-kpi-api`.
+
+---
+
+## Write-Ahead Log
+
+The WAL file lives in the `wal_data` named Docker volume at `/app/data/wal.log`. It survives container restarts and rebuilds. On startup the API replays any writes that were in-flight when the previous instance crashed, then starts normally.
+
+You can inspect the WAL file at any time:
+
+```bash
+docker exec waste-kpi-api cat /app/data/wal.log
+```
 
 ---
 
@@ -116,22 +127,24 @@ Always take a backup first: Admin Settings → 💾 Backup & Restore → Downloa
 
 ```bash
 docker compose down          # stop, keep data
-docker compose down -v       # stop and DESTROY all data
+docker compose down -v       # stop and DESTROY all data including WAL
 ```
 
 ---
 
 ## Common Issues
 
-**502 Bad Gateway from upstream proxy** — add the proxy headers listed above to your NPM/Traefik config.
+**502 Bad Gateway from upstream proxy** — add the proxy headers listed above in NPM's Advanced tab.
 
 **Port 3300 in use** — change the host port in `docker-compose.yml`: `"3400:3300"`.
 
 **Migration failed on startup** — run `docker logs waste-kpi-api` to see the exact SQL error.
 
+**API keeps restarting** — run `docker logs waste-kpi-api` — if you see `57P01` errors, the pool crash fix in `index.js` should handle it; confirm you have the latest image built.
+
 **Admin password forgotten:**
 ```bash
 docker exec -it waste-kpi-postgres psql -U waste_user -d waste_kpi
 # Then: DELETE FROM users WHERE username='admin';
-# Restart the API — ADMIN_USERNAME/ADMIN_PASSWORD will reseed it.
+# Restart the API — ADMIN_USERNAME/ADMIN_PASSWORD will be re-seeded.
 ```

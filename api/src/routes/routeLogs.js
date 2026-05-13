@@ -1,4 +1,5 @@
 const express = require('express');
+const { walAppend, walCommit } = require('../wal');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -9,6 +10,22 @@ module.exports = (pool) => {
     if (!routeLogIds.length) return {};
     const result = await pool.query(
       `SELECT * FROM pack_out_logs
+       WHERE route_log_id = ANY($1::int[])
+       ORDER BY route_log_id, seq`,
+      [routeLogIds]
+    );
+    const map = {};
+    result.rows.forEach(r => {
+      if (!map[r.route_log_id]) map[r.route_log_id] = [];
+      map[r.route_log_id].push(r);
+    });
+    return map;
+  }
+
+  async function fetchAdditionalRoutes(routeLogIds) {
+    if (!routeLogIds.length) return {};
+    const result = await pool.query(
+      `SELECT * FROM additional_route_logs
        WHERE route_log_id = ANY($1::int[])
        ORDER BY route_log_id, seq`,
       [routeLogIds]
@@ -34,14 +51,43 @@ module.exports = (pool) => {
     }
   }
 
+  async function upsertAdditionalRoutes(client, routeLogId, additionalRoutes) {
+    await client.query('DELETE FROM additional_route_logs WHERE route_log_id = $1', [routeLogId]);
+    if (!Array.isArray(additionalRoutes) || additionalRoutes.length === 0) return;
+    for (let i = 0; i < additionalRoutes.length; i++) {
+      const { route_number, first_stop_time, route_complete_time, notes } = additionalRoutes[i];
+      if (!route_number) continue; // skip blank rows
+      await client.query(
+        `INSERT INTO additional_route_logs
+           (route_log_id, seq, route_number, first_stop_time, route_complete_time, notes)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [routeLogId, i + 1, route_number, first_stop_time || null, route_complete_time || null, notes || null]
+      );
+    }
+  }
+
+  async function attachRelated(rows) {
+    if (!rows.length) return rows;
+    const ids = rows.map(r => r.id);
+    const [packOutMap, additionalMap] = await Promise.all([
+      fetchPackOuts(ids),
+      fetchAdditionalRoutes(ids),
+    ]);
+    rows.forEach(r => {
+      r.pack_outs          = packOutMap[r.id]    || [];
+      r.additional_routes  = additionalMap[r.id] || [];
+    });
+    return rows;
+  }
+
   // ── GET ────────────────────────────────────────────────────────────────────
 
   router.get('/', async (req, res) => {
     const { date, from, to, employee_id } = req.query;
     try {
       let query, params;
-      const empFilter = employee_id ? ' AND rl.employee_id = $2' : '';
-      const routeAreaJoin = `LEFT JOIN routes rt ON rt.route_name = rl.route_number`;
+      const empFilter    = employee_id ? ' AND rl.employee_id = $2' : '';
+      const routeAreaJoin   = `LEFT JOIN routes rt ON rt.route_name = rl.route_number`;
       const routeAreaSelect = `, rt.area as route_area`;
 
       if (date) {
@@ -92,10 +138,8 @@ module.exports = (pool) => {
       }
 
       const result = await pool.query(query, params);
-      const rows = result.rows;
-      const packOutMap = await fetchPackOuts(rows.map(r => r.id));
-      rows.forEach(r => { r.pack_outs = packOutMap[r.id] || []; });
-      res.json(rows);
+      await attachRelated(result.rows);
+      res.json(result.rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -105,11 +149,17 @@ module.exports = (pool) => {
     const {
       employee_id, log_date, route_number,
       punch_in, first_stop_time, route_complete_time, to_yard_time, punch_out,
-      notes, pack_outs
+      notes, pack_outs, additional_routes
     } = req.body;
 
     if (!employee_id || !log_date)
       return res.status(400).json({ error: 'employee_id and log_date are required' });
+
+    const walId = walAppend('route_log.upsert', {
+      employee_id, log_date, route_number,
+      punch_in, first_stop_time, route_complete_time, to_yard_time, punch_out,
+      notes, pack_outs, additional_routes
+    });
 
     const client = await pool.connect();
     try {
@@ -138,12 +188,14 @@ module.exports = (pool) => {
       );
       const row = result.rows[0];
       await upsertPackOuts(client, row.id, pack_outs);
+      await upsertAdditionalRoutes(client, row.id, additional_routes);
       await client.query('COMMIT');
+
+      walCommit(walId);
 
       const areaResult = await pool.query('SELECT area FROM routes WHERE route_name=$1 LIMIT 1', [row.route_number]);
       row.route_area = areaResult.rows[0]?.area || null;
-      const packOutResult = await pool.query('SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq', [row.id]);
-      row.pack_outs = packOutResult.rows;
+      await attachRelated([row]);
       res.status(201).json(row);
     } catch (e) {
       await client.query('ROLLBACK');
@@ -156,8 +208,26 @@ module.exports = (pool) => {
   router.put('/:id', async (req, res) => {
     const {
       route_number, punch_in, first_stop_time,
-      route_complete_time, to_yard_time, punch_out, notes, pack_outs
+      route_complete_time, to_yard_time, punch_out,
+      notes, pack_outs, additional_routes
     } = req.body;
+
+    let walId;
+    try {
+      const lookup = await pool.query(
+        'SELECT employee_id, log_date FROM route_logs WHERE id=$1', [req.params.id]
+      );
+      if (lookup.rows.length > 0) {
+        const { employee_id, log_date } = lookup.rows[0];
+        walId = walAppend('route_log.upsert', {
+          employee_id, log_date, route_number,
+          punch_in, first_stop_time, route_complete_time, to_yard_time, punch_out,
+          notes, pack_outs, additional_routes
+        });
+      }
+    } catch (lookupErr) {
+      console.error('[wal] Failed to write WAL entry for PUT route-log:', lookupErr.message);
+    }
 
     const client = await pool.connect();
     try {
@@ -176,12 +246,14 @@ module.exports = (pool) => {
       );
       const row = result.rows[0];
       await upsertPackOuts(client, row.id, pack_outs);
+      await upsertAdditionalRoutes(client, row.id, additional_routes);
       await client.query('COMMIT');
+
+      if (walId) walCommit(walId);
 
       const areaResult = await pool.query('SELECT area FROM routes WHERE route_name=$1 LIMIT 1', [row.route_number]);
       row.route_area = areaResult.rows[0]?.area || null;
-      const packOutResult = await pool.query('SELECT * FROM pack_out_logs WHERE route_log_id=$1 ORDER BY seq', [row.id]);
-      row.pack_outs = packOutResult.rows;
+      await attachRelated([row]);
       res.json(row);
     } catch (e) {
       await client.query('ROLLBACK');
