@@ -78,7 +78,7 @@ A self-hosted, Docker-based operations dashboard for small waste management comp
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/waste-kpi.git
+git clone https://github.com/paulmataruso/wastekpi
 cd waste-kpi
 cp .env.example .env
 ```
