@@ -17,7 +17,7 @@ module.exports = (pool) => {
       const token = jwt.sign(
         { id: user.id, username: user.username, role: user.role },
         process.env.JWT_SECRET,
-        { expiresIn: '24h' }
+        { expiresIn: '7d' }  // 7 days — daily ops app, no reason to force re-login constantly
       );
       res.json({ token, username: user.username, role: user.role });
     } catch (e) {
